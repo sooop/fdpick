@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>fdpick</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div class="panel">
+      <div class="bar">
+        <span id="mode" class="mode" title="Ctrl+L 로 전환">검색</span>
+        <input
+          id="q"
+          type="text"
+          autofocus
+          spellcheck="false"
+          autocomplete="off"
+          placeholder="[fd옵션] -- 검색어"
+        />
+      </div>
+      <div id="list" class="list"></div>
+      <div class="foot">
+        <span id="help" class="help">[fd옵션] -- 검색어 &nbsp; 예) -e pdf -t f -- 보고서</span>
+        <span id="status" class="status">준비됨</span>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

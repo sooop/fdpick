@@ -1,0 +1,241 @@
+/* 색상은 시스템 테마(라이트/다크)를 따른다. */
+:root {
+  color-scheme: light dark;
+  --panel-bg: #ffffff;
+  --panel-border: #d0d0d4;
+  --text: #1c1c1e;
+  --text-muted: #8a8a8e;
+  --input-bg: transparent;
+  --focus-accent: #3478f6;
+  --divider: #e6e6ea;
+  --chip-bg: #eef3ff;
+  --chip-text: #2b5fd0;
+  --row-sel: #e8f0ff;
+  --mark: #d9480f;
+  --invalid: #d92d20;
+  --font-input: "Jetendard", "JetBrains Mono", "Pretendard", "Malgun Gothic", "Cascadia Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --panel-bg: #2b2b2f;
+    --panel-border: #4a4a50;
+    --text: #f2f2f4;
+    --text-muted: #8e8e93;
+    --focus-accent: #5a9bff;
+    --divider: #3a3a40;
+    --chip-bg: #34405a;
+    --chip-text: #9bbcff;
+    --row-sel: #38415a;
+    --mark: #ff9f6b;
+    --invalid: #ff6b5e;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* 창 배경은 투명하게 두고, 둥근 패널만 그린다. */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+  color: var(--text);
+  user-select: none;
+}
+
+/* 창 전체를 덮는 패널. 너비는 Rust 쪽 창 크기가 정한다. */
+.panel {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 9.5px;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+/* 입력줄: 모드 칩 + 입력창 */
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 9.5px;
+  padding: 11px 14.5px 9.5px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.mode {
+  flex: none;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--chip-text);
+  background: var(--chip-bg);
+  border-radius: 5px;
+  padding: 3px 7px;
+}
+
+#q {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-input);
+  font-size: 15px;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  background: var(--input-bg);
+  border: none;
+  padding: 1.5px 0;
+  outline: none;
+  caret-color: var(--focus-accent);
+  user-select: text;
+}
+
+/* 존재하지 않는 경로(경로 모드) */
+#q.invalid {
+  color: var(--invalid);
+}
+
+#q::placeholder {
+  color: var(--text-muted);
+}
+
+#q:focus,
+#q:focus-visible {
+  outline: none;
+}
+
+/* 하단: 도움말(왼쪽) + 상태(오른쪽) */
+.foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 13px;
+  padding: 5.5px 14.5px 7px;
+  border-top: 1px solid var(--divider);
+}
+
+.help,
+.status {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status {
+  flex: none;
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0;
+  font-family: var(--font-input);
+  font-size: 11px;
+}
+
+/* 가상 스크롤 높이를 만드는 컨테이너. 행은 절대 위치로 배치한다. */
+.spacer {
+  position: relative;
+  width: 100%;
+}
+
+/* 결과 행: 파일명 강조, 상위 경로 흐리게. 높이는 list.ts 의 ROW_HEIGHT 와 일치해야 한다. */
+.row {
+  position: absolute;
+  left: 6.5px;
+  right: 6.5px;
+  display: flex;
+  align-items: baseline;
+  gap: 6.5px;
+  height: 29px;
+  line-height: 29px;
+  padding: 0 8px;
+  border-radius: 6.5px;
+  white-space: nowrap;
+}
+.row.sel { background: var(--row-sel); }
+.row.picked { box-shadow: inset 3px 0 0 var(--focus-accent); }
+.row .ico { flex: none; width: 8px; color: var(--chip-text); font-size: 10px; }
+.row .name { flex: none; max-width: 70%; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+/* 왼쪽부터 잘리도록 바깥은 rtl, 안쪽은 ltr 로 글자 순서를 유지 */
+.row .dir {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  color: var(--text-muted);
+}
+.row .hint { flex: none; margin-left: auto; font-size: 10px; color: var(--text-muted); }
+.row .dir-in { direction: ltr; unicode-bidi: isolate; }
+.row mark { background: none; color: var(--mark); }
+
+/* 결과가 없을 때 가운데 안내 */
+.empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  pointer-events: none;
+}
+.empty[hidden] { display: none; }
+
+/* 경로 모드 칩 강조 */
+.mode.path {
+  color: #fff;
+  background: var(--focus-accent);
+}
+
+/* 최근 모드 칩: 라이트/다크 모두 흰 글자 대비 확보 */
+.mode.recent {
+  color: #fff;
+  background: #b45309;
+}
+@media (prefers-color-scheme: dark) {
+  .mode.recent {
+    color: #1c1c1e;
+    background: #f0b35a;
+  }
+}
+
+/* 최근 배지: 행 높이에 영향을 주지 않도록 line-height 고정 */
+.row .badge {
+  flex: none;
+  font-size: 9px;
+  line-height: 13px;
+  padding: 0 4px;
+  border-radius: 3px;
+  color: var(--text-muted);
+  background: var(--divider);
+}
+
+/* 경로 모드 최근 구역의 마지막 행 아래 구분선(높이 불변) */
+.row.recent-last { box-shadow: 0 1px 0 var(--divider); }
+.row.recent-last.picked { box-shadow: inset 3px 0 0 var(--focus-accent), 0 1px 0 var(--divider); }
+
+/* 존재하지 않는 경로 */
+.row.missing { opacity: 0.5; }
+
+/* 상태줄 색 구분 */
+.status.err { color: #d93025; }
+.status.run { color: var(--chip-text); }
+@media (prefers-color-scheme: dark) {
+  .status.err { color: #ff7b72; }
+}
