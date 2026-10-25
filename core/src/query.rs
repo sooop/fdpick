@@ -127,6 +127,82 @@ pub fn tokenize_args(s: &str) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
+/// 검색 경로 토큰을 `--search-path` 로 바꾸고 경로 구분자를 `\` 로 정규화한다.
+///
+/// 규칙
+/// - `@경로` 토큰은 `--search-path 경로` 두 인자로 바뀐다. 따옴표로 묶은 `@"D:\내 문서"` 도
+///   `tokenize_args` 를 거치며 `@D:\내 문서` 한 토큰이 되므로 같다.
+/// - 기존 `--search-path 경로`, `--search-path=경로` 의 경로도 같이 정규화한다.
+/// - 경로 안의 `/` 는 `\` 로 바꾼다(`//server/share` 는 `\server\share`).
+/// - `@` 뒤가 비었거나 `--search-path` 뒤에 값이 없으면 Err 를 반환한다.
+pub fn expand_search_paths(args: Vec<String>) -> Result<Vec<String>, String> {
+    let norm = |p: &str| p.replace('/', "\\");
+    let mut out = Vec::with_capacity(args.len() + 2);
+    let mut it = args.into_iter();
+    while let Some(a) = it.next() {
+        if let Some(path) = a.strip_prefix('@') {
+            if path.is_empty() {
+                return Err("@ 뒤에 경로가 필요하다".to_string());
+            }
+            out.push("--search-path".to_string());
+            out.push(norm(path));
+        } else if a == "--search-path" {
+            let Some(v) = it.next() else {
+                return Err("--search-path 뒤에 경로가 필요하다".to_string());
+            };
+            out.push(a);
+            out.push(norm(&v));
+        } else if let Some(v) = a.strip_prefix("--search-path=") {
+            out.push(format!("--search-path={}", norm(v)));
+        } else {
+            out.push(a);
+        }
+    }
+    Ok(out)
+}
+
+/// 입력 끝에서 완성 중인 `@경로` 토큰.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AtPathToken {
+    /// 토큰(`!` 접두 제외, `@` 포함) 시작 바이트 위치. 입력의 이 앞부분은 그대로 보존한다.
+    pub start: usize,
+    /// 따옴표를 뺀 경로(`@` 제외).
+    pub path: String,
+}
+
+/// `--` 앞의 마지막 토큰이 `@경로` 이면 돌려준다(Tab 완성 대상).
+///
+/// 입력이 공백으로 끝났거나, `--` 가 이미 있거나, 마지막 토큰이 `@` 로 시작하지 않으면 None.
+/// 맨 앞의 `!`(기본 옵션 끄기)은 `@` 앞에 붙어 있어도 허용한다.
+pub fn at_path_token(input: &str) -> Option<AtPathToken> {
+    if find_separator(input).is_some() {
+        return None;
+    }
+    let mut start: Option<usize> = None;
+    let mut in_quote = false;
+    for (i, c) in input.char_indices() {
+        if in_quote {
+            if c == '"' {
+                in_quote = false;
+            }
+        } else if c == '"' {
+            in_quote = true;
+            start.get_or_insert(i);
+        } else if c.is_whitespace() {
+            start = None;
+        } else {
+            start.get_or_insert(i);
+        }
+    }
+    let mut start = start?;
+    // 입력 맨 앞 토큰이면 `!` 접두를 건너뛴다.
+    if input[..start].trim().is_empty() && input[start..].starts_with("!@") {
+        start += 1;
+    }
+    let rest = input[start..].strip_prefix('@')?;
+    Some(AtPathToken { start, path: rest.replace('"', "") })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -391,5 +467,56 @@ mod tests {
             tokenize_args("보고서 \"파일 이름\" 가나다"),
             Ok(sv(&["보고서", "파일 이름", "가나다"]))
         );
+    }
+
+    // ---- expand_search_paths ----
+
+    #[test]
+    fn 경로_골뱅이를_search_path_로() {
+        assert_eq!(
+            expand_search_paths(sv(&["@D:\\a", "-e", "pdf"])),
+            Ok(sv(&["--search-path", "D:\\a", "-e", "pdf"]))
+        );
+    }
+
+    #[test]
+    fn 경로_슬래시_정규화와_따옴표() {
+        let t = tokenize_args(r#"@"D:/내 문서/x" @//srv/share --search-path=E:/y"#).unwrap();
+        assert_eq!(
+            expand_search_paths(t),
+            Ok(sv(&[
+                "--search-path",
+                "D:\\내 문서\\x",
+                "--search-path",
+                "\\\\srv\\share",
+                "--search-path=E:\\y",
+            ]))
+        );
+    }
+
+    #[test]
+    fn 경로_빈_골뱅이는_오류() {
+        assert!(expand_search_paths(sv(&["@"])).is_err());
+        assert!(expand_search_paths(sv(&["--search-path"])).is_err());
+    }
+
+    // ---- at_path_token ----
+
+    #[test]
+    fn 골뱅이_토큰_탐지() {
+        let t = at_path_token(r#"-e pdf @D:\a\b"#).unwrap();
+        assert_eq!((t.start, t.path.as_str()), (7, r"D:\a\b"));
+        let t = at_path_token(r#"!@"D:\내 문서\"#).unwrap();
+        assert_eq!((t.start, t.path.as_str()), (1, r"D:\내 문서\"));
+        // 따옴표 안의 공백은 토큰을 끊지 않는다
+        assert_eq!(at_path_token(r#"@"D:\내 문"#).unwrap().path, r"D:\내 문");
+    }
+
+    #[test]
+    fn 골뱅이_토큰_해당없음() {
+        assert_eq!(at_path_token(r"@D:\a "), None);
+        assert_eq!(at_path_token(r"@D:\a -- x"), None);
+        assert_eq!(at_path_token("-e pdf"), None);
+        assert_eq!(at_path_token(""), None);
     }
 }

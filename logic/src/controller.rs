@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use fdpick_core::{pathnav, query};
 use fdpick_core::engine::{Mode, ResultItem, ResultsUpdated, RunState};
 use fdpick_core::user_actions::ActionInfo;
 
@@ -28,7 +29,7 @@ const MENU_HELP: &str = "액션 메뉴 · 위/아래 선택 · Enter 실행 · E
 
 fn help_of(mode: Mode) -> &'static str {
     match mode {
-        Mode::Fuzzy => "[fd옵션] -- 검색어 \u{00a0} 예) -e pdf -t f -- 보고서 · Tab 폴더 · Ctrl+Enter 탐색기 · Ctrl+L 모드",
+        Mode::Fuzzy => "[fd옵션] -- 검색어 \u{00a0} 예) @D:\\work -e pdf -- 보고서 · Tab @경로 완성/폴더 · Ctrl+Enter 탐색기 · Ctrl+L 모드",
         Mode::Path => "폴더 탐색 · Tab 또는 / 진입 · Shift+Tab 상위 · Enter 복사 · Ctrl+Enter 탐색기 · Ctrl+L 모드",
         Mode::Recent => "최근 사용 · 퍼지 검색 · Enter 복사 · Tab 폴더 · Ctrl+Enter 탐색기 · Ctrl+L 모드",
     }
@@ -364,6 +365,22 @@ impl Controller {
         Vec::new()
     }
 
+    /// fuzzy 모드 Tab: 입력 끝의 `@경로` 토큰을 폴더 이름으로 완성한다.
+    /// 그런 토큰이 없으면 None(기존 Tab 동작). 후보가 없으면 입력을 그대로 두고 Tab 만 소비한다.
+    fn complete_search_path(&mut self) -> Option<Vec<Command>> {
+        if self.mode != Mode::Fuzzy {
+            return None;
+        }
+        let tok = query::at_path_token(&self.input)?;
+        let Some(done) = pathnav::complete_path_token(&tok.path, &[]) else {
+            return Some(Vec::new());
+        };
+        // 공백이 있으면 따옴표로 감싼다. 끝의 `\` 는 따옴표 안에서도 리터럴이다.
+        let path = if done.chars().any(char::is_whitespace) { format!("\"{done}\"") } else { done };
+        let text = format!("{}@{}", &self.input[..tok.start], path);
+        Some(self.set_input(&text))
+    }
+
     /// fuzzy/recent 모드 Tab, 경로 모드의 최근 항목 진입: 커서 항목의 폴더로 경로 모드 시작
     fn fuzzy_to_path(&mut self) -> Vec<Command> {
         let Some(it) = self.current() else {
@@ -588,7 +605,10 @@ impl Controller {
             let cmds = if self.mode == Mode::Path && !self.current_is_recent() {
                 self.enter_cursor_dir().unwrap_or_default()
             } else {
-                self.fuzzy_to_path()
+                match self.complete_search_path() {
+                    Some(c) => c,
+                    None => self.fuzzy_to_path(),
+                }
             };
             return out(true, cmds);
         }

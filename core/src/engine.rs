@@ -174,7 +174,7 @@ impl Engine {
 
     fn fuzzy_query(&self, text: &str, force: bool) {
         let parsed = query::split_query(text);
-        let args = match query::tokenize_args(&parsed.fd_args) {
+        let args = match query::tokenize_args(&parsed.fd_args).and_then(query::expand_search_paths) {
             Ok(a) => a,
             Err(e) => {
                 let mut st = self.state.lock().unwrap();

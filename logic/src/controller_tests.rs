@@ -106,7 +106,7 @@ fn initial_mode_and_labels() {
     assert_eq!(v.mode, Mode::Fuzzy);
     assert_eq!(v.mode_label, "검색");
     assert_eq!(v.placeholder, "[fd옵션] -- 검색어");
-    assert!(v.help.starts_with("[fd옵션] -- 검색어 \u{00a0} 예) -e pdf"));
+    assert!(v.help.starts_with("[fd옵션] -- 검색어 \u{00a0} 예) @D:\\work -e pdf"));
     // 저장값이 recent 로 들어와도 경로 모드
     assert_eq!(plain(Some(Mode::Recent)).view().mode, Mode::Path);
     assert_eq!(plain(None).view().status, "준비됨");
@@ -412,6 +412,31 @@ fn tab_in_path_mode_enters_highlighted_dir() {
     // Ctrl+Tab 도 handled, 무동작
     let o = c.on_key(&ck("Tab"), "");
     assert!(o.handled && o.commands.is_empty());
+}
+
+#[test]
+fn tab_completes_at_path_token() {
+    let base = std::env::temp_dir().join(format!("fdpick_ac_{}", std::process::id()));
+    let dir = base.join("with space");
+    std::fs::create_dir_all(&dir).unwrap();
+    let base_s = base.to_string_lossy().replace('/', "\\");
+
+    let mut c = plain(Some(Mode::Fuzzy));
+    let typed = format!("-e pdf @{}/wi", base_s);
+    let o = c.on_key(&k("Tab"), &typed);
+    let want = format!("-e pdf @\"{}\\with space\\\"", base_s);
+    assert!(o.handled);
+    assert_eq!(o.commands, vec![Command::SetInput(want.clone()), query(&want, Mode::Fuzzy, false)]);
+    assert_eq!(c.view().mode, Mode::Fuzzy);
+
+    // 후보가 없으면 입력은 그대로이고 모드도 바뀌지 않는다
+    let mut c = plain(Some(Mode::Fuzzy));
+    let o = c.on_key(&k("Tab"), &format!("@{}\\zzz", base_s));
+    assert!(o.handled);
+    assert!(o.commands.is_empty());
+    assert_eq!(c.view().mode, Mode::Fuzzy);
+
+    let _ = std::fs::remove_dir_all(&base);
 }
 
 #[test]

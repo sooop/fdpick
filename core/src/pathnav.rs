@@ -209,6 +209,59 @@ pub fn complete(_input: &str, picked: &Entry) -> String {
     format!("{}\\", base)
 }
 
+/// 여러 이름의 공통 접두사를 대소문자 무시로 구한다. 글자는 첫 이름의 표기를 따른다.
+fn common_prefix_ci(names: &[&str]) -> String {
+    let Some((first, rest)) = names.split_first() else {
+        return String::new();
+    };
+    let mut out = String::new();
+    for (i, c) in first.chars().enumerate() {
+        let same = rest.iter().all(|n| {
+            n.chars()
+                .nth(i)
+                .map_or(false, |o| o.to_lowercase().eq(c.to_lowercase()))
+        });
+        if !same {
+            break;
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// 경로 조각 하나를 폴더 이름으로 완성한다(Tab 완성). 구분자는 `\` 로 정규화한다.
+///
+/// - 접두사 일치 항목이 둘 이상이고 공통 접두사가 입력보다 길면 거기까지만 채운다(끝 `\` 없음).
+/// - 그 외에는 첫 후보로 완성하고 끝에 `\` 를 붙인다.
+/// - 후보가 없거나 폴더를 읽을 수 없으면 None.
+pub fn complete_path_token(path: &str, deny_top: &[&str]) -> Option<String> {
+    let norm = path.replace('/', "\\");
+    let nav = parse_input(&norm);
+    let entries = match (&nav.mode, &nav.parent) {
+        (NavKind::Drives, _) | (_, None) => list_drives(),
+        (_, Some(parent)) => list_dirs(parent, deny_top).ok()?,
+    };
+    let cands = filter_entries(entries, &nav.filter);
+    if cands.is_empty() {
+        return None;
+    }
+    if let Some(parent) = nav.parent.as_deref().filter(|_| nav.mode != NavKind::Drives) {
+        let f = nav.filter.to_lowercase();
+        let names: Vec<&str> = cands
+            .iter()
+            .map(|e| e.name.as_str())
+            .filter(|n| n.to_lowercase().starts_with(&f))
+            .collect();
+        if names.len() >= 2 {
+            let lcp = common_prefix_ci(&names);
+            if lcp.chars().count() > nav.filter.chars().count() {
+                return Some(format!("{}\\{}", parent.trim_end_matches('\\'), lcp));
+            }
+        }
+    }
+    Some(complete(&norm, &cands[0]))
+}
+
 /// Enter 시 강조 항목이 없을 때 복사할 현재 폴더 경로.
 /// Dir 또는 DriveRoot 이고 필터가 비었을 때만 Some 이다.
 /// 드라이브 루트는 `D:\`, 그 외는 끝 구분자 없는 `D:\projects` 형태다.
@@ -493,5 +546,30 @@ mod tests {
         if Path::new("C:\\").exists() {
             assert!(ds.iter().any(|d| d.name == "C:"));
         }
+    }
+
+    // ---------- complete_path_token ----------
+
+    #[test]
+    fn 토큰_완성_단일과_공통접두사() {
+        let (_g, dir) = make_fixture("tok");
+        fs::create_dir(format!("{dir}\\alpha1")).unwrap();
+        fs::create_dir(format!("{dir}\\alpha2")).unwrap();
+        // 후보 하나: 끝에 \ 를 붙여 완성(슬래시 입력도 정규화)
+        assert_eq!(
+            complete_path_token(&format!("{}/WITH", dir.replace('\\', "/")), &[]),
+            Some(format!("{dir}\\with space\\"))
+        );
+        // 후보 여럿: 공통 접두사까지만
+        assert_eq!(
+            complete_path_token(&format!("{dir}\\al"), &[]),
+            Some(format!("{dir}\\alpha"))
+        );
+        // 공통 접두사가 늘지 않으면 첫 후보로 완성
+        assert_eq!(
+            complete_path_token(&format!("{dir}\\alpha"), &[]),
+            Some(format!("{dir}\\alpha1\\"))
+        );
+        assert_eq!(complete_path_token(&format!("{dir}\\zzz"), &[]), None);
     }
 }
