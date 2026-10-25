@@ -2,3 +2,8 @@ node_modules
 dist
 src-tauri/target
 src-tauri/gen
+spike/*/target
+target
+spike/*/target*
+spike/*/out
+spike/egui

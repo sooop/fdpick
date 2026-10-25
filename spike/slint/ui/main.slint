@@ -1,0 +1,150 @@
+// fdpick Slint 프로토타입 UI: 입력창 + 가짜 경로 목록 + 상태줄
+import { ListView, Palette } from "std-widgets.slint";
+
+export struct Row {
+    name: string,
+    dir: string,
+}
+
+export component MainWindow inherits Window {
+    // 투명 배경 + 무테. 둥근 모서리는 아래 Rectangle 이 그린다.
+    no-frame: true;
+    always-on-top: true;
+    background: transparent;
+    width: 608px;
+    height: 416px;
+    default-font-family: "Jetendard";
+    title: "fdpick-slint";
+
+    in property <[Row]> rows;
+    in property <string> status;
+    in-out property <int> selected: 0;
+    callback hide-requested();
+    callback focus-input();
+
+    // 시스템 라이트/다크를 따른다(Palette.color-scheme 은 winit 이 알려 주는 테마).
+    property <bool> dark: Palette.color-scheme != ColorScheme.light;
+    property <color> bg: dark ? #1e1f22 : #fafafa;
+    property <color> fg: dark ? #f2f2f2 : #1a1a1a;
+    property <color> dim: dark ? #8a8d93 : #7a7d83;
+    property <color> sel-bg: dark ? #34506e : #cfe3fa;
+    property <color> line: dark ? #3a3c40 : #e0e0e0;
+    property <length> row-h: 29px;
+
+    public function focus-text() {
+        input.focus();
+    }
+
+    function ensure-visible() {
+        if (selected * row-h < -list.content-y) {
+            list.content-y = -(selected * row-h);
+        } else if ((selected + 1) * row-h > -list.content-y + list.visible-height) {
+            list.content-y = -((selected + 1) * row-h - list.visible-height);
+        }
+    }
+
+    FocusScope {
+        capture-key-pressed(e) => {
+            if (e.text == Key.Escape) {
+                root.hide-requested();
+                return accept;
+            }
+            if (e.text == Key.DownArrow) {
+                if (root.selected < root.rows.length - 1) {
+                    root.selected += 1;
+                    root.ensure-visible();
+                }
+                return accept;
+            }
+            if (e.text == Key.UpArrow) {
+                if (root.selected > 0) {
+                    root.selected -= 1;
+                    root.ensure-visible();
+                }
+                return accept;
+            }
+            return reject;
+        }
+
+        Rectangle {
+            background: root.bg;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: root.line;
+            clip: true;
+
+            VerticalLayout {
+                // 입력창 영역
+                Rectangle {
+                    height: 54px;
+                    input := TextInput {
+                        x: 18px;
+                        width: parent.width - 36px;
+                        height: parent.height;
+                        vertical-alignment: center;
+                        font-size: 15px;
+                        color: root.fg;
+                        single-line: true;
+                        wrap: no-wrap;
+                        accepted => { }
+                    }
+                    Text {
+                        x: 18px;
+                        height: parent.height;
+                        vertical-alignment: center;
+                        font-size: 15px;
+                        color: root.dim;
+                        text: "경로 검색 (Search path)";
+                        visible: input.text == "" && input.preedit-text == "";
+                    }
+                }
+                Rectangle { height: 1px; background: root.line; }
+
+                // 목록: ListView 의 for 는 화면에 보이는 행만 인스턴스화한다(가상화).
+                list := ListView {
+                    for r[i] in root.rows: Rectangle {
+                        height: root.row-h;
+                        background: i == root.selected ? root.sel-bg : transparent;
+                        HorizontalLayout {
+                            padding-left: 18px;
+                            padding-right: 18px;
+                            spacing: 8px;
+                            Text {
+                                text: r.name;
+                                font-size: 11px;
+                                font-weight: 700;
+                                color: root.fg;
+                                vertical-alignment: center;
+                                horizontal-stretch: 0;
+                            }
+                            Text {
+                                text: r.dir;
+                                font-size: 11px;
+                                color: root.dim;
+                                vertical-alignment: center;
+                                overflow: elide;
+                                horizontal-stretch: 1;
+                            }
+                        }
+                        TouchArea {
+                            clicked => { root.selected = i; }
+                        }
+                    }
+                }
+
+                Rectangle { height: 1px; background: root.line; }
+                // 상태줄
+                Rectangle {
+                    height: 26px;
+                    Text {
+                        x: 18px;
+                        text: root.status;
+                        font-size: 11px;
+                        color: root.dim;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+}

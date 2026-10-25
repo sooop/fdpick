@@ -1,0 +1,23 @@
+[package]
+name = "proto_slint"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+# 렌더러 선택: 둘 중 하나만 켜서 각각 빌드한다.
+sw = ["slint/renderer-software"]
+gl = ["slint/renderer-femtovg"]
+
+[dependencies]
+slint = { version = "=1.18.1", default-features = false, features = ["std", "backend-winit", "compat-1-2", "unstable-winit-030", "unstable-fontique-011"] }
+global-hotkey = "0.9"
+
+[build-dependencies]
+slint-build = "=1.18.1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

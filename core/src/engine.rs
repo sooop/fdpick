@@ -1,5 +1,5 @@
-//! 질의 엔진: 프런트의 `query_changed` 를 받아 fd 실행, 매칭, 경로 탐색을 조율하고
-//! `results_updated` 이벤트로 결과를 내보낸다.
+//! 질의 엔진: UI 의 `query_changed` 를 받아 fd 실행, 매칭, 경로 탐색을 조율하고
+//! 결과를 싱크(콜백)로 내보낸다. UI 프레임워크에 의존하지 않는다.
 //!
 //! 스레드: fd 이벤트마다 포워더 1개(작업당), 결과 방출용 에미터 1개(상주).
 //! 에미터는 매처/fd 가 알릴 때만 깨어나 40ms 로 합쳐서 방출한다(유휴 시 CPU 0).
@@ -10,7 +10,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
 
 use crate::config::Config;
 use crate::fd::{self, DriveTypes, FdConfig, FdEvent};
@@ -27,7 +26,7 @@ const EMIT_COALESCE: Duration = Duration::from_millis(40);
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
-enum Mode {
+pub enum Mode {
     Fuzzy,
     Path,
     Recent,
@@ -35,7 +34,7 @@ enum Mode {
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
-enum RunState {
+pub enum RunState {
     Idle,
     Running,
     Done,
@@ -43,29 +42,32 @@ enum RunState {
 }
 
 #[derive(Clone, Serialize)]
-struct ResultItem {
-    path: String,
-    name_start: usize,
-    indices: Vec<u32>,
-    is_dir: bool,
+pub struct ResultItem {
+    pub path: String,
+    pub name_start: usize,
+    pub indices: Vec<u32>,
+    pub is_dir: bool,
     /// 최근 사용 목록에서 온 항목
-    recent: bool,
+    pub recent: bool,
     /// 경로가 더 이상 존재하지 않음(최근 항목만)
-    missing: bool,
+    pub missing: bool,
 }
 
 #[derive(Clone, Serialize)]
-struct ResultsUpdated {
-    seq: u64,
-    mode: Mode,
-    items: Vec<ResultItem>,
-    matched: u32,
-    scanned: u32,
-    state: RunState,
-    elapsed_ms: u64,
-    message: Option<String>,
-    cache_note: Option<String>,
+pub struct ResultsUpdated {
+    pub seq: u64,
+    pub mode: Mode,
+    pub items: Vec<ResultItem>,
+    pub matched: u32,
+    pub scanned: u32,
+    pub state: RunState,
+    pub elapsed_ms: u64,
+    pub message: Option<String>,
+    pub cache_note: Option<String>,
 }
+
+/// 결과 전달 콜백. 엔진의 여러 스레드에서 호출되므로 가볍게 처리하고 UI 스레드로 넘길 것.
+pub type Sink = Arc<dyn Fn(ResultsUpdated) + Send + Sync>;
 
 struct State {
     result_limit: usize,
@@ -112,7 +114,7 @@ impl Wake {
 }
 
 pub struct Engine {
-    app: AppHandle,
+    sink: Sink,
     cfg: FdConfig,
     cache_ttl: Duration,
     deny_top: Vec<String>,
@@ -123,7 +125,7 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn new(app: AppHandle, config: &Config) -> Self {
+    pub fn new(sink: Sink, config: &Config) -> Self {
         let wake = Arc::new(Wake { pending: AtomicBool::new(false), lock: Mutex::new(()), cv: Condvar::new() });
         let w = wake.clone();
         let matcher = Matcher::new(Arc::new(move || w.notify()));
@@ -146,7 +148,7 @@ impl Engine {
             dirty: false,
         }));
         let engine = Engine {
-            app,
+            sink,
             cfg: fd_config(config),
             cache_ttl: Duration::from_secs(config.cache_ttl_minutes * 60),
             deny_top: config.deny_top.clone(),
@@ -272,7 +274,7 @@ impl Engine {
     fn spawn_emitter(&self) {
         let state = self.state.clone();
         let wake = self.wake.clone();
-        let app = self.app.clone();
+        let sink = self.sink.clone();
         thread::spawn(move || loop {
             wake.wait();
             // 짧게 모아서 한 번만 방출
@@ -290,7 +292,7 @@ impl Engine {
                 Some(build_fuzzy_payload(&mut st))
             };
             if let Some(p) = payload {
-                let _ = app.emit("results_updated", p);
+                sink(p);
             }
         });
     }
@@ -325,7 +327,7 @@ impl Engine {
                 cache_note: None,
             }
         };
-        let _ = self.app.emit("results_updated", payload);
+        (self.sink)(payload);
     }
 
     fn path_query(&self, text: &str) {
@@ -379,7 +381,7 @@ impl Engine {
                 cache_note: None,
             }
         };
-        let _ = self.app.emit("results_updated", payload);
+        (self.sink)(payload);
     }
 }
 
