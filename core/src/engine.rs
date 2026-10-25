@@ -24,7 +24,7 @@ const PATH_LIMIT: usize = 500;
 const PATH_RECENT_LIMIT: usize = 5;
 const EMIT_COALESCE: Duration = Duration::from_millis(40);
 
-#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
     Fuzzy,
@@ -32,7 +32,7 @@ pub enum Mode {
     Recent,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RunState {
     Idle,
@@ -41,7 +41,7 @@ pub enum RunState {
     Error,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct ResultItem {
     pub path: String,
     pub name_start: usize,
@@ -53,7 +53,7 @@ pub struct ResultItem {
     pub missing: bool,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct ResultsUpdated {
     pub seq: u64,
     pub mode: Mode,

@@ -7,3 +7,4 @@ target
 spike/*/target*
 spike/*/out
 spike/egui
+target-*

@@ -1,0 +1,8 @@
+[package]
+name = "fdpick-logic"
+version = "0.1.0"
+edition = "2021"
+description = "fdpick UI 로직: 모드/키/선택/상태 머신 (창 시스템과 무관, 단위 테스트 가능)"
+
+[dependencies]
+fdpick-core = { path = "../core" }
