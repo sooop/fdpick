@@ -456,6 +456,23 @@ unsafe fn on_activate(wp: WPARAM, lp: LPARAM) {
     }
 }
 
+/// 같은 실행 파일을 `--restart` 로 새로 띄우고 이 인스턴스를 종료한다.
+/// 새 프로세스는 단일 인스턴스 뮤텍스가 풀릴 때까지 기다린 뒤 설정을 다시 읽으며 시작한다.
+/// 새 프로세스를 만들지 못하면 종료하지 않고 상태를 유지한다.
+unsafe fn restart() {
+    let a = st();
+    let spawned = std::env::current_exe().and_then(|exe| std::process::Command::new(exe).arg("--restart").spawn());
+    match spawned {
+        Ok(_) => {
+            DestroyWindow(a.hwnd);
+        }
+        Err(e) => {
+            let msg = w(&format!("다시 시작하지 못했습니다: {e}"));
+            MessageBoxW(a.hwnd, msg.as_ptr(), w("fdpick").as_ptr(), MB_OK | MB_ICONERROR);
+        }
+    }
+}
+
 unsafe fn tray_message(lp: LPARAM) {
     let a = st();
     match (lp & 0xffff) as u32 {
@@ -468,6 +485,7 @@ unsafe fn tray_message(lp: LPARAM) {
         }
         WM_RBUTTONUP => match tray::show_menu() {
             tray::ID_MENU_OPEN => show_popup(),
+            tray::ID_MENU_RESTART => restart(),
             tray::ID_MENU_QUIT => {
                 DestroyWindow(a.hwnd);
             }

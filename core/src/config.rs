@@ -23,9 +23,15 @@ const KNOWN_KEYS: &[&str] = &[
     "hide_on_blur",
     "theme",
     "autostart",
+    "enter_action",
+    "shift_enter_action",
     "copy",
     "action",
 ];
+/// Enter / Shift+Enter 에 지정할 수 있는 동작
+const ENTER_ACTIONS: &[&str] = &["copy", "copy_dir", "reveal", "open", "to_explorer"];
+const DEFAULT_ENTER_ACTION: &str = "reveal";
+const DEFAULT_SHIFT_ENTER_ACTION: &str = "copy";
 /// `[[action]]` 항목의 알려진 키
 const KNOWN_ACTION_KEYS: &[&str] = &[
     "name", "key", "ext", "target", "run", "mode", "cwd", "window", "close_popup",
@@ -104,6 +110,10 @@ pub struct Config {
     pub hide_on_blur: bool,
     pub theme: String,
     pub autostart: bool,
+    /// Enter 동작: copy | copy_dir | reveal | open | to_explorer
+    pub enter_action: String,
+    /// Shift+Enter 동작(같은 값 집합)
+    pub shift_enter_action: String,
     pub copy: CopyConfig,
     /// 사용자 정의 액션(`[[action]]` 테이블 배열)
     #[serde(rename = "action")]
@@ -283,6 +293,8 @@ impl Default for Config {
             hide_on_blur: true,
             theme: "system".to_string(),
             autostart: false,
+            enter_action: DEFAULT_ENTER_ACTION.to_string(),
+            shift_enter_action: DEFAULT_SHIFT_ENTER_ACTION.to_string(),
             copy: CopyConfig::default(),
             actions: Vec::new(),
         }
@@ -324,6 +336,22 @@ impl Config {
                 self.theme
             ));
             self.theme = "system".to_string();
+        }
+
+        for (name, value, default) in [
+            ("enter_action", &mut self.enter_action, DEFAULT_ENTER_ACTION),
+            ("shift_enter_action", &mut self.shift_enter_action, DEFAULT_SHIFT_ENTER_ACTION),
+        ] {
+            let v = value.trim().to_ascii_lowercase();
+            if ENTER_ACTIONS.contains(&v.as_str()) {
+                *value = v;
+            } else {
+                w.push(format!(
+                    "{name} \"{value}\" 은(는) 알 수 없는 값이라 \"{default}\" 로 대체했습니다 (허용: {})",
+                    ENTER_ACTIONS.join(", ")
+                ));
+                *value = default.to_string();
+            }
         }
 
         if self.cache_ttl_minutes == 0 {
@@ -538,6 +566,12 @@ theme = "system"
 
 # 로그인 시 자동 시작
 autostart = false
+
+# Enter / Shift+Enter 동작: copy(경로 복사) | copy_dir(폴더 경로 복사) | reveal(탐색기에서 열기)
+#   | open(기본 프로그램으로 열기) | to_explorer(직전에 포커스가 있던 탐색기 창을 이동)
+# Ctrl+Enter 는 reveal, Alt+Enter 는 open 으로 고정입니다.
+enter_action = "reveal"
+shift_enter_action = "copy"
 
 # 경로 복사 동작
 [copy]

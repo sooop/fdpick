@@ -23,15 +23,33 @@ pub struct ControllerInit {
     pub applicable: Arc<dyn Fn(&[String]) -> Vec<ActionInfo> + Send + Sync>,
     /// 시작 알림(설정 경고, 단축키 등록 실패 등). 첫 입력 전까지 상태줄에 표시.
     pub startup_notes: Vec<String>,
+    /// Enter 동작("copy" | "copy_dir" | "reveal" | "open" | "to_explorer"). 설정에서 검증된 값.
+    pub enter_action: String,
+    /// Shift+Enter 동작(같은 값 집합)
+    pub shift_enter_action: String,
+    /// 사용자 프로파일 폴더. 경로 모드에서 선행 `~` 를 이 값으로 치환한다. None 이면 치환하지 않는다.
+    pub home_dir: Option<String>,
 }
 
 const MENU_HELP: &str = "액션 메뉴 · 위/아래 선택 · Enter 실행 · Esc 닫기";
 
+/// `{E}` = Enter 동작, `{S}` = Shift+Enter 동작
 fn help_of(mode: Mode) -> &'static str {
     match mode {
-        Mode::Fuzzy => "[fd옵션] -- 검색어 \u{00a0} 예) @D:\\work -e pdf -- 보고서 · Tab @경로 완성/폴더 · Ctrl+Enter 탐색기 · Shift+Enter 열린 탐색기로 · Ctrl+L 모드",
-        Mode::Path => "폴더 탐색 · Tab 또는 / 진입 · Shift+Tab 상위 · Enter 복사 · Ctrl+Enter 탐색기 · Shift+Enter 열린 탐색기로 · Ctrl+L 모드",
-        Mode::Recent => "최근 사용 · 퍼지 검색 · Enter 복사 · Tab 폴더 · Ctrl+Enter 탐색기 · Shift+Enter 열린 탐색기로 · Ctrl+L 모드",
+        Mode::Fuzzy => "[fd옵션] -- 검색어 \u{00a0} 예) @D:\\work -e pdf -- 보고서 · Tab @경로 완성/폴더 · Enter {E} · Ctrl+Enter 탐색기 · Shift+Enter {S} · Ctrl+L 모드",
+        Mode::Path => "폴더 탐색 · Tab 또는 / 진입 · Shift+Tab 상위 · Enter {E} · Ctrl+Enter 탐색기 · Shift+Enter {S} · Ctrl+L 모드",
+        Mode::Recent => "최근 사용 · 퍼지 검색 · Enter {E} · Tab 폴더 · Ctrl+Enter 탐색기 · Shift+Enter {S} · Ctrl+L 모드",
+    }
+}
+
+/// 도움말에 쓰는 동작 이름
+fn action_label(kind: &str) -> &'static str {
+    match kind {
+        "copy_dir" => "폴더 복사",
+        "reveal" => "탐색기",
+        "open" => "열기",
+        "to_explorer" => "열린 탐색기로",
+        _ => "복사",
     }
 }
 
@@ -90,6 +108,9 @@ pub struct Controller {
     applicable: Arc<dyn Fn(&[String]) -> Vec<ActionInfo> + Send + Sync>,
     has_actions: bool,
     hotkeys: HashMap<String, ActionInfo>,
+    enter_action: String,
+    shift_enter_action: String,
+    home_dir: Option<String>,
 
     mode: Mode,
     /// 마지막으로 저장한 모드(팝업 재표시 때 복원). TS 의 localStorage 에 해당.
@@ -141,6 +162,12 @@ impl Controller {
             applicable: init.applicable,
             has_actions: !init.all_actions.is_empty(),
             hotkeys,
+            enter_action: init.enter_action,
+            shift_enter_action: init.shift_enter_action,
+            home_dir: init
+                .home_dir
+                .map(|h| h.trim_end_matches(['\\', '/']).to_string())
+                .filter(|h| !h.is_empty()),
             mode: saved_mode,
             saved_mode,
             input: String::new(),
@@ -324,8 +351,34 @@ impl Controller {
         self.status_override = None;
         self.startup_note = None;
         self.user_moved = false;
+        if let Some(expanded) = self.expand_home(text) {
+            return self.set_input(&expanded);
+        }
         self.apply_cursor_policy();
         vec![self.query(false)]
+    }
+
+    /// 경로 모드에서 선행 `~`(단독, 또는 `~\`·`~/` 로 시작)를 사용자 프로파일 폴더로 치환한다.
+    fn expand_home(&self, text: &str) -> Option<String> {
+        let home = self.home_dir.as_deref()?;
+        let expand = |s: &str| -> Option<String> {
+            let rest = s.strip_prefix('~')?;
+            if rest.is_empty() {
+                return Some(format!("{home}\\"));
+            }
+            rest.starts_with(['\\', '/']).then(|| format!("{home}{rest}"))
+        };
+        match self.mode {
+            Mode::Path => expand(text),
+            // 검색 모드: 입력 끝에서 치는 중인 `@~…` 토큰만 치환한다(공백이 있으면 따옴표로 감쌈)
+            Mode::Fuzzy => {
+                let tok = query::at_path_token(text)?;
+                let path = expand(&tok.path)?;
+                let path = if path.chars().any(char::is_whitespace) { format!("\"{path}\"") } else { path };
+                Some(format!("{}@{}", &text[..tok.start], path))
+            }
+            Mode::Recent => None,
+        }
     }
 
     // ---------- 입력 완성 ----------
@@ -623,11 +676,15 @@ impl Controller {
             } else if ev.ctrl && !ev.alt && !ev.shift {
                 self.run_action("reveal")
             } else if ev.shift && !ev.ctrl && !ev.alt {
-                self.run_action("to_explorer")
+                let kind = self.shift_enter_action.clone();
+                self.run_action(&kind)
             } else if !ev.ctrl && !ev.shift {
                 match self.complete_on_enter() {
                     Some(c) => c,
-                    None => self.run_action("copy"),
+                    None => {
+                        let kind = self.enter_action.clone();
+                        self.run_action(&kind)
+                    }
                 }
             } else {
                 Vec::new()
@@ -851,7 +908,13 @@ impl Controller {
         let help = if self.menu_open {
             MENU_HELP.to_string()
         } else {
-            format!("{}{}", help_of(self.mode), if self.has_actions { " · Ctrl+K 액션" } else { "" })
+            format!(
+                "{}{}",
+                help_of(self.mode)
+                    .replace("{E}", action_label(&self.enter_action))
+                    .replace("{S}", action_label(&self.shift_enter_action)),
+                if self.has_actions { " · Ctrl+K 액션" } else { "" }
+            )
         };
         ViewState {
             mode: self.mode,

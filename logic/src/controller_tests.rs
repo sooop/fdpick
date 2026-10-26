@@ -19,6 +19,9 @@ fn make(saved: Option<Mode>, actions: Vec<ActionInfo>, notes: Vec<&str>) -> Cont
         all_actions: actions,
         applicable: Arc::new(move |_paths: &[String]| list.clone()),
         startup_notes: notes.into_iter().map(String::from).collect(),
+        enter_action: "copy".into(),
+        shift_enter_action: "to_explorer".into(),
+        home_dir: Some("C:\\Users\\me".into()),
     })
 }
 
@@ -606,6 +609,9 @@ fn menu_without_applicable_actions() {
         all_actions: vec![act(0, "A", "", true)],
         applicable: Arc::new(|_: &[String]| Vec::new()),
         startup_notes: vec![],
+        enter_action: "copy".into(),
+        shift_enter_action: "to_explorer".into(),
+        home_dir: None,
     });
     typed(&mut c, "C:\\a", 1, vec![dir("C:\\apps")]);
     let o = c.on_key(&ck("k"), "C:\\a");
@@ -1068,4 +1074,60 @@ fn unhandled_character_keys() {
     let mut c = plain(Some(Mode::Fuzzy));
     let o = c.on_key(&k("/"), "x");
     assert!(!o.handled);
+}
+
+#[test]
+fn tilde_expands_to_home_in_path_mode() {
+    let mut c = plain(None);
+    let o = c.on_input_changed("~", false);
+    assert_eq!(o[0], Command::SetInput("C:\\Users\\me\\".into()));
+    let o = c.on_input_changed("~/work", false);
+    assert_eq!(o[0], Command::SetInput("C:\\Users\\me/work".into()));
+    // 선행이 아니거나 구분자가 뒤따르지 않으면 치환하지 않는다
+    let o = c.on_input_changed("~abc", false);
+    assert!(matches!(o[0], Command::Query { .. }));
+    let o = c.on_input_changed("C:\\~", false);
+    assert!(matches!(o[0], Command::Query { .. }));
+}
+
+#[test]
+fn tilde_in_search_mode_expands_only_at_path_token() {
+    let mut c = plain(Some(Mode::Fuzzy));
+    // @ 없는 ~ 는 검색어
+    let o = c.on_input_changed("~", false);
+    assert!(matches!(o[0], Command::Query { .. }));
+    let o = c.on_input_changed("-e pdf @~", false);
+    assert_eq!(o[0], Command::SetInput("-e pdf @C:\\Users\\me\\".into()));
+    let o = c.on_input_changed("!@~\\docs", false);
+    assert_eq!(o[0], Command::SetInput("!@C:\\Users\\me\\docs".into()));
+    // 이미 -- 뒤(검색어)면 치환하지 않는다
+    let o = c.on_input_changed("-- @~", false);
+    assert!(matches!(o[0], Command::Query { .. }));
+}
+
+#[test]
+fn configurable_enter_actions() {
+    let mut c = Controller::new(ControllerInit {
+        saved_mode: None,
+        all_actions: Vec::new(),
+        applicable: Arc::new(|_: &[String]| Vec::new()),
+        startup_notes: vec![],
+        enter_action: "reveal".into(),
+        shift_enter_action: "copy".into(),
+        home_dir: None,
+    });
+    typed(&mut c, "C:\\apps\\bin", 1, vec![dir("C:\\apps\\bin")]);
+    let o = c.on_key(&k("Enter"), "C:\\apps\\bin");
+    assert_eq!(
+        o.commands,
+        vec![Command::RunAction { kind: "reveal".into(), paths: vec!["C:\\apps\\bin".into()] }]
+    );
+    let mut sh = k("Enter");
+    sh.shift = true;
+    let o = c.on_key(&sh, "C:\\apps\\bin");
+    assert_eq!(
+        o.commands,
+        vec![Command::RunAction { kind: "copy".into(), paths: vec!["C:\\apps\\bin".into()] }]
+    );
+    assert!(c.view().help.contains("Enter 탐색기") && c.view().help.contains("Shift+Enter 복사"));
 }

@@ -33,9 +33,20 @@ use crate::util::{instance_suffix, w};
 
 /// 이미 실행 중이면 기존 창을 띄우고 true. 뮤텍스 핸들은 프로세스 수명 동안 유지한다.
 unsafe fn already_running(class: &str, mutex: &str) -> bool {
-    let h = CreateMutexW(null(), 0, w(mutex).as_ptr());
-    if h.is_null() || GetLastError() != ERROR_ALREADY_EXISTS {
-        return false;
+    // `--restart`: 이전 인스턴스가 끝나 뮤텍스가 풀릴 때까지 최대 5초 기다린다
+    let restarting = std::env::args().any(|a| a == "--restart");
+    let mut waits = if restarting { 50 } else { 0 };
+    loop {
+        let h = CreateMutexW(null(), 0, w(mutex).as_ptr());
+        if h.is_null() || GetLastError() != ERROR_ALREADY_EXISTS {
+            return false;
+        }
+        if waits == 0 {
+            break;
+        }
+        waits -= 1;
+        CloseHandle(h);
+        windows_sys::Win32::System::Threading::Sleep(100);
     }
     // 첫 인스턴스가 아직 창을 만드는 중일 수 있어 잠시 재시도한다
     let cls = w(class);
@@ -115,6 +126,9 @@ fn main() {
             all_actions: user_actions::all(&config.actions),
             applicable: Arc::new(move |paths: &[String]| user_actions::applicable(&cfg_for_applicable.actions, paths)),
             startup_notes: notes,
+            enter_action: config.enter_action.clone(),
+            shift_enter_action: config.shift_enter_action.clone(),
+            home_dir: std::env::var("USERPROFILE").ok().filter(|h| !h.is_empty()),
         });
         app::install(config, engine, ctl);
 

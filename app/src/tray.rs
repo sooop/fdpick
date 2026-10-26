@@ -13,6 +13,7 @@ use crate::util::w;
 const TRAY_ID: u32 = 1;
 pub const ID_MENU_OPEN: usize = 1;
 pub const ID_MENU_QUIT: usize = 2;
+pub const ID_MENU_RESTART: usize = 3;
 
 /// 아이콘 리소스 ID(app.rc 의 `1 ICON`)
 pub const ICON_RES_ID: u16 = 1;
@@ -65,6 +66,7 @@ pub fn show_menu() -> usize {
             return 0;
         }
         AppendMenuW(menu, MF_STRING, ID_MENU_OPEN, w("열기").as_ptr());
+        AppendMenuW(menu, MF_STRING, ID_MENU_RESTART, w("다시 시작 (설정 다시 읽기)").as_ptr());
         AppendMenuW(menu, MF_STRING, ID_MENU_QUIT, w("종료").as_ptr());
         let mut pt: POINT = zeroed();
         GetCursorPos(&mut pt);
