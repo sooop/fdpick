@@ -19,8 +19,8 @@ cargo build --release -p fdpick     # target\release\fdpick.exe
 cargo test --workspace
 ```
 
-실행하면 숨김 상태로 트레이에 상주한다. 기본 단축키 `Ctrl+Alt+Space` 로 열고 닫는다. `--show` 를 주면 시작과 동시에 표시한다.
-단축키가 다른 앱과 겹치면 환경변수 `FDPICK_HOTKEY="Ctrl+Alt+F"` 로 임시 지정하거나 설정 파일의 `hotkey` 를 바꾼다.
+실행하면 숨김 상태로 트레이에 상주한다. 기본 단축키 `Ctrl+Alt+Space`(2차 `Ctrl+Alt+L`)로 열고 닫는다. `--show` 를 주면 시작과 동시에 표시한다.
+단축키가 다른 앱과 겹치면 환경변수 `FDPICK_HOTKEY="Ctrl+Alt+F"` 로 1차를 임시 지정하거나 설정 파일의 `hotkey`·`hotkey2` 를 바꾼다. 2차는 `hotkey2 = ""` 로 끌 수 있다.
 등록에 실패해도 앱은 트레이로 계속 실행된다.
 
 ## 모드와 키
@@ -37,6 +37,7 @@ cargo test --workspace
 | Enter | 복사. 경로 모드에서 이름 입력 중이면 강조 항목으로 완성(한 번 더 누르면 복사) |
 | Ctrl+D | 폴더 경로 복사 |
 | Ctrl+O, Ctrl+Enter | 탐색기에서 열기 |
+| Shift+Enter | 팝업 직전에 포커스가 있던 탐색기 창(활성 탭)을 그 경로로 이동. 파일이면 부모 폴더로 이동해 선택. 탐색기 창이 하나도 없으면 새 창을 열고, 다른 탐색기만 열려 있고 직전 포커스가 탐색기가 아니면 아무 일도 하지 않음 |
 | Alt+Enter | 기본 프로그램으로 열기 |
 | Tab, `/` | 강조 폴더로 진입 |
 | Shift+Tab | 경로 모드에서 상위 폴더 |

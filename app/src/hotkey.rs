@@ -4,6 +4,7 @@ use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
 
 pub const ID_HOTKEY: i32 = 1;
+pub const ID_HOTKEY2: i32 = 2;
 
 /// 파싱 결과: (HOT_KEY_MODIFIERS 비트, 가상 키 코드)
 pub fn parse(spec: &str) -> Result<(u32, u32), String> {
@@ -80,9 +81,9 @@ fn key_code(t: &str) -> Option<u32> {
 }
 
 /// 등록한다. 실패하면 사유 문자열을 돌려준다.
-pub fn register(hwnd: HWND, spec: &str) -> Result<(), String> {
+pub fn register(hwnd: HWND, id: i32, spec: &str) -> Result<(), String> {
     let (mods, vk) = parse(spec)?;
-    let ok = unsafe { RegisterHotKey(hwnd, ID_HOTKEY, mods | MOD_NOREPEAT, vk) };
+    let ok = unsafe { RegisterHotKey(hwnd, id, mods | MOD_NOREPEAT, vk) };
     if ok == 0 {
         Err(format!("단축키 {spec} 등록 실패(다른 앱이 사용 중일 수 있음)"))
     } else {
@@ -93,6 +94,7 @@ pub fn register(hwnd: HWND, spec: &str) -> Result<(), String> {
 pub fn unregister(hwnd: HWND) {
     unsafe {
         UnregisterHotKey(hwnd, ID_HOTKEY);
+        UnregisterHotKey(hwnd, ID_HOTKEY2);
     }
 }
 

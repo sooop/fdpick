@@ -100,7 +100,7 @@ fn initial_mode_and_labels() {
     assert_eq!(v.placeholder, "경로 입력 (예: d:\\work)");
     assert_eq!(
         v.help,
-        "폴더 탐색 · Tab 또는 / 진입 · Shift+Tab 상위 · Enter 복사 · Ctrl+Enter 탐색기 · Ctrl+L 모드"
+        "폴더 탐색 · Tab 또는 / 진입 · Shift+Tab 상위 · Enter 복사 · Ctrl+Enter 탐색기 · Shift+Enter 열린 탐색기로 · Ctrl+L 모드"
     );
     let v = plain(Some(Mode::Fuzzy)).view();
     assert_eq!(v.mode, Mode::Fuzzy);
@@ -303,15 +303,22 @@ fn enter_variants() {
         o.commands,
         vec![Command::RunAction { kind: "reveal".into(), paths: vec!["C:\\apps\\bin".into()] }]
     );
+    let mut sh = k("Enter");
+    sh.shift = true;
+    let o = c.on_key(&sh, "C:\\apps\\bin");
+    assert_eq!(
+        o.commands,
+        vec![Command::RunAction { kind: "to_explorer".into(), paths: vec!["C:\\apps\\bin".into()] }]
+    );
     let o = c.on_key(&ck("d"), "C:\\apps\\bin");
     assert_eq!(
         o.commands,
         vec![Command::RunAction { kind: "copy_dir".into(), paths: vec!["C:\\apps\\bin".into()] }]
     );
-    // Shift+Enter 는 아무 일도 하지 않지만 handled
-    let mut sh = k("Enter");
-    sh.shift = true;
-    let o = c.on_key(&sh, "C:\\apps\\bin");
+    // Ctrl+Shift+Enter 는 아무 일도 하지 않지만 handled
+    let mut cs = ck("Enter");
+    cs.shift = true;
+    let o = c.on_key(&cs, "C:\\apps\\bin");
     assert!(o.handled && o.commands.is_empty());
 }
 

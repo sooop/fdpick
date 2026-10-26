@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 /// 알려진 최상위 키(오타 발견용)
 const KNOWN_KEYS: &[&str] = &[
     "hotkey",
+    "hotkey2",
     "fd_path",
     "default_fd_args",
     "deny_top",
@@ -58,6 +59,7 @@ const BUILTIN_KEYS: &[&str] = &[
 const KNOWN_COPY_KEYS: &[&str] = &["quote", "forward_slash"];
 
 const DEFAULT_HOTKEY: &str = "Ctrl+Alt+Space";
+const DEFAULT_HOTKEY2: &str = "Ctrl+Alt+L";
 const DEFAULT_TTL: u64 = 15;
 const DEFAULT_EMPTY_LIMIT: usize = 2000;
 const DEFAULT_RECENT_LIMIT: usize = 200;
@@ -88,6 +90,8 @@ impl Default for CopyConfig {
 #[serde(default)]
 pub struct Config {
     pub hotkey: String,
+    /// 2차 단축키. 1차와 함께 등록되며, 빈 문자열이면 사용하지 않는다.
+    pub hotkey2: String,
     pub fd_path: String,
     pub default_fd_args: Vec<String>,
     pub deny_top: Vec<String>,
@@ -243,6 +247,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             hotkey: DEFAULT_HOTKEY.to_string(),
+            hotkey2: DEFAULT_HOTKEY2.to_string(),
             fd_path: String::new(),
             default_fd_args: strs(&[
                 "--hidden",
@@ -481,6 +486,9 @@ pub fn default_toml() -> String {
 
 # 팝업을 여는 전역 단축키
 hotkey = "Ctrl+Alt+Space"
+
+# 2차 단축키. 1차와 충돌할 때를 위해 함께 등록합니다. 빈 문자열이면 사용하지 않습니다.
+hotkey2 = "Ctrl+Alt+L"
 
 # fd 실행 파일 경로. 비워 두면 PATH 에서 찾습니다.
 fd_path = ""

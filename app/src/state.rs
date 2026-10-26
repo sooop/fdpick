@@ -49,6 +49,8 @@ pub struct App {
     pub view: Option<ViewState>,
 
     pub visible: bool,
+    /// 팝업을 띄우기 직전에 포커스가 있던 창(HWND). Shift+Enter 로 탐색기에 보낼 때 쓴다.
+    pub prev_fg: usize,
     pub scroll: i32,
     pub composing: bool,
     /// 프로그램이 입력창을 비우는 동안 EN_CHANGE 를 컨트롤러에 넘기지 않는다
@@ -88,6 +90,7 @@ impl App {
             ctl: None,
             view: None,
             visible: false,
+            prev_fg: 0,
             scroll: 0,
             composing: false,
             suppress_change: false,

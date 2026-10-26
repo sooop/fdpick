@@ -4,6 +4,7 @@
 
 mod app;
 mod autostart;
+mod explorer;
 mod gfx;
 mod hotkey;
 mod input;
@@ -80,16 +81,26 @@ fn main() {
         }
         let hwnd = st().hwnd;
 
-        // 전역 단축키: 환경변수가 설정보다 우선. 실패해도 앱은 계속 뜨고 트레이로 열 수 있다.
+        // 전역 단축키: 환경변수가 1차 설정보다 우선. 1차·2차 중 하나라도 등록되면 정상으로 본다.
+        // 실패해도 앱은 계속 뜨고 트레이로 열 수 있다.
         let spec = std::env::var("FDPICK_HOTKEY").unwrap_or_else(|_| config.hotkey.clone());
-        st().hotkey_text = spec.clone();
-        match hotkey::register(hwnd, &spec) {
-            Ok(()) => st().hotkey_ok = true,
-            Err(e) => {
-                st().hotkey_ok = false;
-                notes.push(e);
+        let mut specs = vec![(hotkey::ID_HOTKEY, spec)];
+        if !config.hotkey2.trim().is_empty() && !config.hotkey2.trim().eq_ignore_ascii_case(specs[0].1.trim()) {
+            specs.push((hotkey::ID_HOTKEY2, config.hotkey2.clone()));
+        }
+        let mut active = Vec::new();
+        let mut failed = Vec::new();
+        for (id, spec) in &specs {
+            match hotkey::register(hwnd, *id, spec) {
+                Ok(()) => active.push(spec.clone()),
+                Err(e) => {
+                    failed.push(spec.clone());
+                    notes.push(e);
+                }
             }
         }
+        st().hotkey_ok = !active.is_empty();
+        st().hotkey_text = if active.is_empty() { failed.join(", ") } else { active.join(" / ") };
         tray::add();
 
         // 엔진: sink 는 엔진 스레드에서 불리므로 결과를 UI 스레드로 보낸다

@@ -29,9 +29,9 @@ const MENU_HELP: &str = "액션 메뉴 · 위/아래 선택 · Enter 실행 · E
 
 fn help_of(mode: Mode) -> &'static str {
     match mode {
-        Mode::Fuzzy => "[fd옵션] -- 검색어 \u{00a0} 예) @D:\\work -e pdf -- 보고서 · Tab @경로 완성/폴더 · Ctrl+Enter 탐색기 · Ctrl+L 모드",
-        Mode::Path => "폴더 탐색 · Tab 또는 / 진입 · Shift+Tab 상위 · Enter 복사 · Ctrl+Enter 탐색기 · Ctrl+L 모드",
-        Mode::Recent => "최근 사용 · 퍼지 검색 · Enter 복사 · Tab 폴더 · Ctrl+Enter 탐색기 · Ctrl+L 모드",
+        Mode::Fuzzy => "[fd옵션] -- 검색어 \u{00a0} 예) @D:\\work -e pdf -- 보고서 · Tab @경로 완성/폴더 · Ctrl+Enter 탐색기 · Shift+Enter 열린 탐색기로 · Ctrl+L 모드",
+        Mode::Path => "폴더 탐색 · Tab 또는 / 진입 · Shift+Tab 상위 · Enter 복사 · Ctrl+Enter 탐색기 · Shift+Enter 열린 탐색기로 · Ctrl+L 모드",
+        Mode::Recent => "최근 사용 · 퍼지 검색 · Enter 복사 · Tab 폴더 · Ctrl+Enter 탐색기 · Shift+Enter 열린 탐색기로 · Ctrl+L 모드",
     }
 }
 
@@ -622,6 +622,8 @@ impl Controller {
                 self.run_action("open")
             } else if ev.ctrl && !ev.alt && !ev.shift {
                 self.run_action("reveal")
+            } else if ev.shift && !ev.ctrl && !ev.alt {
+                self.run_action("to_explorer")
             } else if !ev.ctrl && !ev.shift {
                 match self.complete_on_enter() {
                     Some(c) => c,

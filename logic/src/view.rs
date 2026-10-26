@@ -91,7 +91,7 @@ pub enum Command {
     Query { text: String, mode: Mode, force: bool },
     /// 팝업 숨김
     Hide,
-    /// 내장 동작(core::actions::run_with): kind 는 "copy" "copy_dir" "reveal" "open"
+    /// 내장 동작(core::actions::run_with): kind 는 "copy" "copy_dir" "reveal" "open" "to_explorer"
     /// 완료되면 셸이 `Controller::on_action_result` 를 호출한다.
     RunAction { kind: String, paths: Vec<String> },
     /// 사용자 액션(core::user_actions::run). 완료되면 `on_action_result` 호출.

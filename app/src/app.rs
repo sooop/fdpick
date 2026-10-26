@@ -20,6 +20,7 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 use crate::gfx::{self, metrics_of, palette, sc};
+use crate::explorer;
 use crate::hotkey;
 use crate::input::{edit_proc, edit_text};
 use crate::paint::{self, chip_rect, layout, L_WIN_H, L_WIN_W};
@@ -182,6 +183,8 @@ pub unsafe fn show_popup() {
         SetFocus(a.edit);
         return;
     }
+    let fg = GetForegroundWindow();
+    a.prev_fg = if fg == a.hwnd { 0 } else { fg as usize };
     if gfx::refresh_theme() {
         InvalidateRect(a.edit, null(), 1);
     }
@@ -352,7 +355,7 @@ fn recorded_paths(kind: &str, paths: &[String]) -> Vec<String> {
     let norm: Vec<String> = paths.iter().map(|p| actions::normalize_path(p)).filter(|p| !p.is_empty()).collect();
     match kind {
         "copy_dir" => norm.iter().map(|p| actions::to_dir_path(p)).collect(),
-        "reveal" | "open" => norm.into_iter().take(1).collect(),
+        "reveal" | "open" | "to_explorer" => norm.into_iter().take(1).collect(),
         _ => norm,
     }
 }
@@ -371,12 +374,20 @@ unsafe fn run_action(kind: String, paths: Vec<String>) {
     let a = st();
     let (Some(cfg), Some(engine)) = (a.config.clone(), a.engine.clone()) else { return };
     let hwnd = a.hwnd as usize;
+    let prev_fg = a.prev_fg;
     let spawned = std::thread::Builder::new().name("fdpick-action".into()).spawn(move || {
         let opts = actions::CopyOptions { quote: cfg.copy.quote, forward_slash: cfg.copy.forward_slash };
-        let result = actions::run_with(&kind, &paths, &opts);
-        if result.is_ok() {
-            engine.record_recent(&recorded_paths(&kind, &paths));
-        }
+        // to_explorer 는 직전 포커스가 탐색기가 아니면 조용히 무시한다(acted=false). 최근 목록에도 올리지 않는다.
+        let result = if kind == "to_explorer" {
+            paths.first().map(|p| explorer::goto(prev_fg, p)).unwrap_or(Ok(false))
+        } else {
+            actions::run_with(&kind, &paths, &opts).map(|_| true)
+        };
+        let result = result.map(|acted| {
+            if acted {
+                engine.record_recent(&recorded_paths(&kind, &paths));
+            }
+        });
         // 내장 동작은 성공하면 팝업을 닫는 것이 기본 흐름
         post_done(hwnd, ActionDone { result, close_popup: true });
     });
@@ -523,7 +534,7 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
             0
         }
         WM_HOTKEY => {
-            if wp as i32 == hotkey::ID_HOTKEY {
+            if matches!(wp as i32, hotkey::ID_HOTKEY | hotkey::ID_HOTKEY2) {
                 toggle_popup();
             }
             0
