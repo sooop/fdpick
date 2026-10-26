@@ -19,7 +19,7 @@ cargo build --release -p fdpick     # target\release\fdpick.exe
 cargo test --workspace
 ```
 
-실행하면 숨김 상태로 트레이에 상주한다. 기본 단축키 `Ctrl+Alt+Space`(2차 `Ctrl+Alt+L`)로 열고 닫는다. `--show` 를 주면 시작과 동시에 표시한다.
+실행하면 숨김 상태로 트레이에 상주한다. 기본 단축키 `Ctrl+Alt+Space`(2차 `Ctrl+Shift+L`)로 열고 닫는다. `--show` 를 주면 시작과 동시에 표시한다.
 단축키가 다른 앱과 겹치면 환경변수 `FDPICK_HOTKEY="Ctrl+Alt+F"` 로 1차를 임시 지정하거나 설정 파일의 `hotkey`·`hotkey2` 를 바꾼다. 2차는 `hotkey2 = ""` 로 끌 수 있다.
 등록에 실패해도 앱은 트레이로 계속 실행된다.
 

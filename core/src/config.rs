@@ -65,9 +65,9 @@ const BUILTIN_KEYS: &[&str] = &[
 const KNOWN_COPY_KEYS: &[&str] = &["quote", "forward_slash"];
 
 const DEFAULT_HOTKEY: &str = "Ctrl+Alt+Space";
-const DEFAULT_HOTKEY2: &str = "Ctrl+Alt+L";
+const DEFAULT_HOTKEY2: &str = "Ctrl+Shift+L";
 const DEFAULT_TTL: u64 = 15;
-const DEFAULT_EMPTY_LIMIT: usize = 2000;
+const DEFAULT_EMPTY_LIMIT: usize = 200;
 const DEFAULT_RECENT_LIMIT: usize = 200;
 const MAX_RECENT_LIMIT: usize = 5000;
 const MAX_EMPTY_LIMIT: usize = 100_000;
@@ -260,6 +260,8 @@ impl Default for Config {
             hotkey2: DEFAULT_HOTKEY2.to_string(),
             fd_path: String::new(),
             default_fd_args: strs(&[
+                "-t",
+                "d",
                 "--hidden",
                 "--exclude",
                 ".git",
@@ -516,13 +518,13 @@ pub fn default_toml() -> String {
 hotkey = "Ctrl+Alt+Space"
 
 # 2차 단축키. 1차와 충돌할 때를 위해 함께 등록합니다. 빈 문자열이면 사용하지 않습니다.
-hotkey2 = "Ctrl+Alt+L"
+hotkey2 = "Ctrl+Shift+L"
 
 # fd 실행 파일 경로. 비워 두면 PATH 에서 찾습니다.
 fd_path = ""
 
 # fd 에 항상 붙이는 인자(인자 단위로 나눠서 적습니다)
-default_fd_args = ["--hidden", "--exclude", ".git", "--exclude", "node_modules", "--exclude", "__pycache__", "--exclude", "AppData"]
+default_fd_args = ["-t", "d", "--hidden", "--exclude", ".git", "--exclude", "node_modules", "--exclude", "__pycache__", "--exclude", "AppData"]
 
 # 드라이브 최상위에서 건너뛸 폴더 이름(대소문자 무시)
 deny_top = [
@@ -547,7 +549,7 @@ drive_types = ["Fixed"]
 cache_ttl_minutes = 15
 
 # 검색어가 비었을 때 보여 줄 최대 항목 수 (1~100000)
-empty_limit = 2000
+empty_limit = 200
 
 # 검색어가 있을 때 보여 줄 최대 결과 수 (1~10000)
 result_limit = 200
@@ -906,7 +908,7 @@ mod tests {
         assert_eq!(w.len(), 4, "{w:?}"); // 알 수 없는 값 + 비어서 대체 + result + empty
         assert_eq!(c.drive_types, vec!["Fixed"]);
         assert_eq!(c.result_limit, 200);
-        assert_eq!(c.empty_limit, 2000);
+        assert_eq!(c.empty_limit, 200);
     }
 
     #[test]
