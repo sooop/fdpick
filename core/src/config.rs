@@ -30,7 +30,7 @@ const KNOWN_KEYS: &[&str] = &[
 ];
 /// Enter / Shift+Enter 에 지정할 수 있는 동작
 const ENTER_ACTIONS: &[&str] = &["copy", "copy_dir", "reveal", "open", "to_explorer"];
-const DEFAULT_ENTER_ACTION: &str = "reveal";
+const DEFAULT_ENTER_ACTION: &str = "to_explorer";
 const DEFAULT_SHIFT_ENTER_ACTION: &str = "copy";
 /// `[[action]]` 항목의 알려진 키
 const KNOWN_ACTION_KEYS: &[&str] = &[
