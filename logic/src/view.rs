@@ -96,6 +96,6 @@ pub enum Command {
     RunAction { kind: String, paths: Vec<String> },
     /// 사용자 액션(core::user_actions::run). 완료되면 `on_action_result` 호출.
     RunUserAction { id: usize, paths: Vec<String>, close_popup: bool },
-    /// 마지막 사용 모드(검색/경로) 저장. 최근 모드는 저장하지 않는다.
-    SaveMode(Mode),
+    /// 검색 패턴 이력 전체(최신이 앞)를 저장한다. 빈 목록이면 이력을 지운 것.
+    SaveHistory(Vec<String>),
 }

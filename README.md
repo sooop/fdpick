@@ -19,7 +19,7 @@ cargo build --release -p fdpick     # target\release\fdpick.exe
 cargo test --workspace
 ```
 
-실행하면 숨김 상태로 트레이에 상주한다. 기본 단축키 `Ctrl+Alt+Space`(2차 `Ctrl+Shift+L`)로 열고 닫는다. `--show` 를 주면 시작과 동시에 표시한다.
+실행하면 숨김 상태로 트레이에 상주한다. 기본 단축키 `Ctrl+Alt+Space` 는 검색 모드로, 2차 `Ctrl+Shift+L` 은 경로 모드로 열고 닫는다. `--show` 를 주면 시작과 동시에 표시한다.
 단축키가 다른 앱과 겹치면 환경변수 `FDPICK_HOTKEY="Ctrl+Alt+F"` 로 1차를 임시 지정하거나 설정 파일의 `hotkey`·`hotkey2` 를 바꾼다. 2차는 `hotkey2 = ""` 로 끌 수 있다.
 등록에 실패해도 앱은 트레이로 계속 실행된다.
 
@@ -43,7 +43,8 @@ cargo test --workspace
 | Shift+Tab | 경로 모드에서 상위 폴더 |
 | Ctrl+Space | 다중 선택 토글 |
 | Ctrl+R | fd 다시 실행 |
-| Ctrl+K | 사용자 액션 메뉴 |
+| Ctrl+K, →(캐럿이 입력 끝일 때) | 사용자 액션 메뉴(메뉴 안에서 ←, Esc 로 닫기) |
+| Ctrl+↑/↓ | 검색 모드: 검색 패턴 이력 이전/다음 |
 | Esc | 닫기 |
 
 경로 모드에서 입력 맨 앞의 `~`, 검색 모드에서는 입력 끝에서 치는 `@~` 토큰의 `~`(단독 또는 `~\`, `~/` 로 시작)는 사용자 프로파일 폴더(`%USERPROFILE%`)로 치환된다.
@@ -56,7 +57,11 @@ cargo test --workspace
 
 `%APPDATA%\fdpick\config.toml`(없으면 첫 실행에 생성). 단축키, fd 경로와 기본 옵션, 제외 폴더, 캐시 시간, 결과 개수,
 최근 목록 개수, 포커스 아웃 숨김, 테마, 자동 시작, 복사 형식, `[[action]]` 사용자 액션을 설정한다.
-최근 목록은 `%APPDATA%\fdpick\recent.json`, 마지막 모드는 `%APPDATA%\fdpick\state.json`.
+최근 목록은 `%APPDATA%\fdpick\recent.json`, 검색 패턴 이력은 `%APPDATA%\fdpick\search_history.json`.
+
+검색 패턴 이력: 검색 모드에서 결과를 실제로 쓴(Enter, 복사, 열기, 액션 실행) 입력을 최대 `history_limit`(기본 50, 0 이면 끔)개 저장한다.
+같은 입력은 하나로 합쳐 맨 앞에 둔다. 검색 모드에서 Ctrl+↑/↓ 로 이전/다음 패턴을 입력창에 채우며(입력 중이면 그 글자로 시작하는 패턴만),
+Ctrl+↓ 로 끝까지 내려오면 처음 입력으로 돌아온다. 전체 삭제는 트레이 메뉴의 "검색 이력 지우기".
 
 ## 구조
 

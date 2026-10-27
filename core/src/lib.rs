@@ -4,6 +4,7 @@ pub mod actions;
 pub mod config;
 pub mod engine;
 pub mod fd;
+pub mod history;
 pub mod matcher;
 pub mod pathnav;
 pub mod query;

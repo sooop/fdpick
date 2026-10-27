@@ -7,6 +7,7 @@ use std::sync::Arc;
 use fdpick_core::actions;
 use fdpick_core::config::Config;
 use fdpick_core::engine::{Engine, Mode, ResultsUpdated};
+use fdpick_core::history;
 use fdpick_core::user_actions;
 use fdpick_logic::view::{Command, KeyEvent};
 use windows_sys::Win32::Foundation::*;
@@ -24,7 +25,6 @@ use crate::explorer;
 use crate::hotkey;
 use crate::input::{edit_proc, edit_text};
 use crate::paint::{self, chip_rect, layout, L_WIN_H, L_WIN_W};
-use crate::persist;
 use crate::state::*;
 use crate::tray;
 use crate::util::{hi_word, lo_word, point_of, w};
@@ -175,7 +175,8 @@ unsafe fn place_window() {
 
 // ---------------------------------------------------------------- 표시/숨김
 
-pub unsafe fn show_popup() {
+/// 팝업을 연다. `mode` 는 단축키가 정한 시작 모드. 이미 떠 있으면 상태를 유지하고 앞으로 가져온다.
+pub unsafe fn show_popup(mode: Mode) {
     let a = st();
     if a.visible {
         // 이미 떠 있으면 상태는 유지하고 앞으로 가져온다
@@ -196,7 +197,7 @@ pub unsafe fn show_popup() {
     a.composing = false;
     a.visible = true;
     a.scroll = 0;
-    let cmds = a.ctl.as_mut().map(|c| c.on_show()).unwrap_or_default();
+    let cmds = a.ctl.as_mut().map(|c| c.on_show(mode)).unwrap_or_default();
     exec(cmds);
     refresh_view(true);
     ShowWindow(a.hwnd, SW_SHOW);
@@ -222,12 +223,34 @@ pub unsafe fn hide_popup(by_blur: bool) {
     SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
 }
 
-unsafe fn toggle_popup() {
-    if st().visible {
-        hide_popup(false);
-    } else {
-        show_popup();
+/// 전역 단축키. 닫혀 있으면 그 모드로 열고, 같은 모드로 열려 있으면 닫고, 다른 모드로 열려 있으면 모드만 바꾼다.
+unsafe fn on_hotkey(mode: Mode) {
+    let a = st();
+    if !a.visible {
+        show_popup(mode);
+        return;
     }
+    let cur = a.ctl.as_ref().map(|c| c.view().mode);
+    if cur == Some(mode) {
+        hide_popup(false);
+        return;
+    }
+    let cmds = a.ctl.as_mut().map(|c| c.switch_to(mode)).unwrap_or_default();
+    exec(cmds);
+    refresh_view(true);
+    SetForegroundWindow(a.hwnd);
+    SetFocus(a.edit);
+}
+
+/// 검색 이력을 모두 지운다(확인 후). 저장 파일도 비운다.
+unsafe fn clear_search_history() {
+    let a = st();
+    let msg = w("검색 이력을 모두 지울까요?");
+    if MessageBoxW(a.hwnd, msg.as_ptr(), w("fdpick").as_ptr(), MB_YESNO | MB_ICONQUESTION) != IDYES {
+        return;
+    }
+    let cmds = a.ctl.as_mut().map(|c| c.clear_history()).unwrap_or_default();
+    exec(cmds);
 }
 
 // ---------------------------------------------------------------- 뷰 갱신
@@ -345,7 +368,11 @@ pub unsafe fn exec(cmds: Vec<Command>) {
             Command::Hide => hide_popup(false),
             Command::RunAction { kind, paths } => run_action(kind, paths),
             Command::RunUserAction { id, paths, close_popup } => run_user_action(id, paths, close_popup),
-            Command::SaveMode(m) => persist::save_mode(m),
+            Command::SaveHistory(items) => {
+                if let Some(p) = history::default_path() {
+                    history::save(&p, &items);
+                }
+            }
         }
     }
 }
@@ -480,11 +507,12 @@ unsafe fn tray_message(lp: LPARAM) {
             if a.visible {
                 hide_popup(false);
             } else if GetTickCount64().saturating_sub(a.blur_hidden_at) > BLUR_CLICK_GUARD_MS {
-                show_popup();
+                show_popup(Mode::Fuzzy);
             }
         }
         WM_RBUTTONUP => match tray::show_menu() {
-            tray::ID_MENU_OPEN => show_popup(),
+            tray::ID_MENU_OPEN => show_popup(Mode::Fuzzy),
+            tray::ID_MENU_CLEAR_HISTORY => clear_search_history(),
             tray::ID_MENU_RESTART => restart(),
             tray::ID_MENU_QUIT => {
                 DestroyWindow(a.hwnd);
@@ -552,13 +580,16 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
             0
         }
         WM_HOTKEY => {
-            if matches!(wp as i32, hotkey::ID_HOTKEY | hotkey::ID_HOTKEY2) {
-                toggle_popup();
+            // 1차 단축키는 검색 모드, 2차 단축키는 경로 모드로 시작한다
+            match wp as i32 {
+                hotkey::ID_HOTKEY => on_hotkey(Mode::Fuzzy),
+                hotkey::ID_HOTKEY2 => on_hotkey(Mode::Path),
+                _ => {}
             }
             0
         }
         WM_APP_SHOW => {
-            show_popup();
+            show_popup(Mode::Fuzzy);
             0
         }
         WM_APP_TRAY => {

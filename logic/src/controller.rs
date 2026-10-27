@@ -15,8 +15,12 @@ use crate::pathutil::{
 use crate::view::{Command, KeyEvent, KeyOutcome, Row, StatusKind, ViewState};
 
 pub struct ControllerInit {
-    /// 마지막으로 쓴 모드(검색/경로). None 이면 경로 모드로 시작한다.
-    pub saved_mode: Option<Mode>,
+    /// 처음 시작할 모드(검색/경로). None 이면 경로 모드. 이후에는 `on_show` 가 단축키별로 정한다.
+    pub start_mode: Option<Mode>,
+    /// 검색 패턴 이력(최신이 앞). 저장소에서 읽은 값.
+    pub history: Vec<String>,
+    /// 이력 보관 수. 0 이면 이력을 기록하지 않는다.
+    pub history_limit: usize,
     /// 설정의 모든 사용자 액션(단축키 바인딩용)
     pub all_actions: Vec<ActionInfo>,
     /// 선택 대상에 적용 가능한 액션 조회(메뉴용). core::user_actions::applicable 를 감싼 클로저.
@@ -31,7 +35,7 @@ pub struct ControllerInit {
     pub home_dir: Option<String>,
 }
 
-const MENU_HELP: &str = "액션 메뉴 · 위/아래 선택 · Enter 실행 · Esc 닫기";
+const MENU_HELP: &str = "액션 메뉴 · 위/아래 선택 · Enter 실행 · Esc/← 닫기";
 
 /// `{E}` = Enter 동작, `{S}` = Shift+Enter 동작
 fn help_of(mode: Mode) -> &'static str {
@@ -113,8 +117,6 @@ pub struct Controller {
     home_dir: Option<String>,
 
     mode: Mode,
-    /// 마지막으로 저장한 모드(팝업 재표시 때 복원). TS 의 localStorage 에 해당.
-    saved_mode: Mode,
     /// 컨트롤러가 아는 입력창 텍스트(on_key / on_input_changed / SetInput 으로 갱신)
     input: String,
     /// 직전에 SetInput 으로 내보낸 텍스트. 셸이 되돌려 보내는 EN_CHANGE 한 번을 무시하기 위함.
@@ -135,6 +137,14 @@ pub struct Controller {
     startup_note: Option<String>,
     input_invalid: bool,
 
+    // 검색 패턴 이력(검색 모드에서 결과를 실제로 쓴 입력). 최신이 앞.
+    history: Vec<String>,
+    history_limit: usize,
+    /// Ctrl+↑/↓ 로 순회 중인 이력 위치
+    hist_pos: Option<usize>,
+    /// 순회를 시작할 때의 입력(접두어 필터이자 Ctrl+↓ 로 돌아올 곳)
+    hist_draft: String,
+
     // 액션 메뉴
     menu_open: bool,
     menu_actions: Vec<ActionInfo>,
@@ -149,7 +159,9 @@ fn out(handled: bool, commands: Vec<Command>) -> KeyOutcome {
 
 impl Controller {
     pub fn new(init: ControllerInit) -> Self {
-        let saved_mode = if init.saved_mode == Some(Mode::Fuzzy) { Mode::Fuzzy } else { Mode::Path };
+        let start_mode = if init.start_mode == Some(Mode::Fuzzy) { Mode::Fuzzy } else { Mode::Path };
+        let mut history = init.history;
+        history.truncate(init.history_limit);
         let mut hotkeys = HashMap::new();
         for a in &init.all_actions {
             if !a.key.is_empty() {
@@ -168,8 +180,7 @@ impl Controller {
                 .home_dir
                 .map(|h| h.trim_end_matches(['\\', '/']).to_string())
                 .filter(|h| !h.is_empty()),
-            mode: saved_mode,
-            saved_mode,
+            mode: start_mode,
             input: String::new(),
             echo: None,
             page_size: 10,
@@ -184,6 +195,10 @@ impl Controller {
             status_override: None,
             startup_note,
             input_invalid: false,
+            history,
+            history_limit: init.history_limit,
+            hist_pos: None,
+            hist_draft: String::new(),
             menu_open: false,
             menu_actions: Vec::new(),
             menu_targets: Vec::new(),
@@ -302,19 +317,12 @@ impl Controller {
         vec![Command::SetInput(text.to_string()), self.query(false)]
     }
 
-    fn save_mode_cmd(&mut self, cmds: &mut Vec<Command>) {
-        if self.mode == Mode::Fuzzy || self.mode == Mode::Path {
-            self.saved_mode = self.mode;
-            cmds.push(Command::SaveMode(self.mode));
-        }
-    }
-
     fn switch_mode(&mut self, next: Mode) -> Vec<Command> {
         self.close_menu(true);
         self.input_invalid = false;
         self.mode = next;
+        self.hist_pos = None;
         let mut cmds = Vec::new();
-        self.save_mode_cmd(&mut cmds);
         self.input.clear();
         self.echo = Some(String::new());
         self.status_override = None;
@@ -328,10 +336,12 @@ impl Controller {
     }
 
     /// 팝업이 표시될 때(재표시 포함): 입력/선택/메뉴를 초기화하고 질의 명령을 돌려준다.
-    pub fn on_show(&mut self) -> Vec<Command> {
+    /// `mode` 는 이번에 누른 단축키의 시작 모드.
+    pub fn on_show(&mut self, mode: Mode) -> Vec<Command> {
         self.close_menu(false);
         self.input_invalid = false;
-        self.mode = self.saved_mode;
+        self.hist_pos = None;
+        self.mode = mode;
         self.input.clear();
         self.echo = Some(String::new());
         self.status_override = None;
@@ -339,6 +349,21 @@ impl Controller {
         self.picked.clear();
         self.clear_list();
         vec![Command::SetInput(String::new()), self.query(false)]
+    }
+
+    /// 팝업이 열려 있을 때 다른 시작 모드의 단축키를 눌렀다. 같은 모드면 아무것도 하지 않는다.
+    pub fn switch_to(&mut self, mode: Mode) -> Vec<Command> {
+        if self.mode == mode {
+            return Vec::new();
+        }
+        self.switch_mode(mode)
+    }
+
+    /// 검색 패턴 이력을 모두 지운다(저장소도 비우도록 SaveHistory 를 돌려준다).
+    pub fn clear_history(&mut self) -> Vec<Command> {
+        self.history.clear();
+        self.hist_pos = None;
+        vec![Command::SaveHistory(Vec::new())]
     }
 
     /// 입력창 텍스트가 바뀌었다(IME 조합 중 포함).
@@ -351,6 +376,7 @@ impl Controller {
         self.status_override = None;
         self.startup_note = None;
         self.user_moved = false;
+        self.hist_pos = None;
         if let Some(expanded) = self.expand_home(text) {
             return self.set_input(&expanded);
         }
@@ -441,10 +467,7 @@ impl Controller {
         };
         let dir = ensure_trailing_sep(&folder_of(&it.path, it.is_dir));
         let mut cmds = Vec::new();
-        if self.mode != Mode::Path {
-            self.mode = Mode::Path;
-            self.save_mode_cmd(&mut cmds);
-        }
+        self.mode = Mode::Path;
         self.picked.clear();
         cmds.extend(self.set_input(&dir));
         cmds
@@ -626,6 +649,64 @@ impl Controller {
 
     /// 키 입력. `input_text` 는 현재 입력창 텍스트.
     pub fn on_key(&mut self, ev: &KeyEvent, input_text: &str) -> KeyOutcome {
+        let mut o = self.on_key_inner(ev, input_text);
+        self.record_history_if_used(&mut o.commands);
+        o
+    }
+
+    /// 검색 모드에서 결과를 실제로 쓰는 명령(내장/사용자 액션)이 나갈 때 그 입력을 이력에 올린다.
+    fn record_history_if_used(&mut self, cmds: &mut Vec<Command>) {
+        if self.mode != Mode::Fuzzy || self.history_limit == 0 {
+            return;
+        }
+        let used = cmds.iter().any(|c| matches!(c, Command::RunAction { .. } | Command::RunUserAction { .. }));
+        let text = self.input.trim().to_string();
+        if !used || text.is_empty() {
+            return;
+        }
+        self.history.retain(|h| *h != text);
+        self.history.insert(0, text);
+        self.history.truncate(self.history_limit);
+        self.hist_pos = None;
+        cmds.push(Command::SaveHistory(self.history.clone()));
+    }
+
+    /// 이력 항목이 순회 기준 접두어(대소문자 무시)와 맞는가. 기준과 똑같은 항목은 건너뛴다.
+    fn history_matches(&self, i: usize) -> bool {
+        let prefix = if self.hist_pos.is_some() { &self.hist_draft } else { &self.input };
+        let h = &self.history[i];
+        h != prefix && h.to_lowercase().starts_with(&prefix.to_lowercase())
+    }
+
+    /// Ctrl+↑(older) / Ctrl+↓: 이력을 입력창에 채운다. 순회 시작 때의 입력이 접두어 필터가 된다.
+    fn history_step(&mut self, older: bool) -> Vec<Command> {
+        let n = self.history.len();
+        if older {
+            let start = self.hist_pos.map_or(0, |i| i + 1);
+            let Some(i) = (start..n).find(|&i| self.history_matches(i)) else { return Vec::new() };
+            if self.hist_pos.is_none() {
+                self.hist_draft = self.input.clone();
+            }
+            self.hist_pos = Some(i);
+            let t = self.history[i].clone();
+            return self.set_input(&t);
+        }
+        let Some(cur) = self.hist_pos else { return Vec::new() };
+        match (0..cur).rev().find(|&j| self.history_matches(j)) {
+            Some(j) => {
+                self.hist_pos = Some(j);
+                let t = self.history[j].clone();
+                self.set_input(&t)
+            }
+            None => {
+                self.hist_pos = None;
+                let d = std::mem::take(&mut self.hist_draft);
+                self.set_input(&d)
+            }
+        }
+    }
+
+    fn on_key_inner(&mut self, ev: &KeyEvent, input_text: &str) -> KeyOutcome {
         if self.echo.as_deref() != Some(input_text) {
             self.echo = None;
         }
@@ -644,6 +725,21 @@ impl Controller {
         let lower = lower.as_str();
 
         if ctrl && lower == "k" {
+            self.open_menu();
+            return out(true, Vec::new());
+        }
+        // Ctrl+↑/↓: 검색 패턴 이력(검색 모드, 이력이 있을 때만)
+        if self.mode == Mode::Fuzzy
+            && ctrl
+            && !ev.shift
+            && !self.history.is_empty()
+            && (key == "ArrowUp" || key == "ArrowDown")
+        {
+            let cmds = self.history_step(key == "ArrowUp");
+            return out(true, cmds);
+        }
+        // → : 캐럿이 입력 끝에 있을 때만 메뉴를 연다(끝에서의 → 는 원래 아무 동작이 없다)
+        if key == "ArrowRight" && !ev.ctrl && !ev.alt && !ev.shift && ev.caret_at_end && self.has_actions {
             self.open_menu();
             return out(true, Vec::new());
         }
@@ -779,7 +875,7 @@ impl Controller {
         let ctrl = ev.ctrl && !ev.alt;
         let lower = if key.chars().count() == 1 { key.to_lowercase() } else { key.to_string() };
         let lower = lower.as_str();
-        if key == "Escape" {
+        if key == "Escape" || (key == "ArrowLeft" && !ev.ctrl && !ev.alt && !ev.shift) {
             self.close_menu(true);
             return out(true, Vec::new());
         }
@@ -913,7 +1009,7 @@ impl Controller {
                 help_of(self.mode)
                     .replace("{E}", action_label(&self.enter_action))
                     .replace("{S}", action_label(&self.shift_enter_action)),
-                if self.has_actions { " · Ctrl+K 액션" } else { "" }
+                if self.has_actions { " · Ctrl+K/→ 액션" } else { "" }
             )
         };
         ViewState {

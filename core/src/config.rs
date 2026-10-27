@@ -19,6 +19,7 @@ const KNOWN_KEYS: &[&str] = &[
     "empty_limit",
     "result_limit",
     "recent_limit",
+    "history_limit",
     "record_recent",
     "hide_on_blur",
     "theme",
@@ -70,6 +71,8 @@ const DEFAULT_TTL: u64 = 15;
 const DEFAULT_EMPTY_LIMIT: usize = 200;
 const DEFAULT_RECENT_LIMIT: usize = 200;
 const MAX_RECENT_LIMIT: usize = 5000;
+const DEFAULT_HISTORY_LIMIT: usize = 50;
+const MAX_HISTORY_LIMIT: usize = 1000;
 const MAX_EMPTY_LIMIT: usize = 100_000;
 const DEFAULT_RESULT_LIMIT: usize = 200;
 const MAX_RESULT_LIMIT: usize = 10_000;
@@ -106,6 +109,8 @@ pub struct Config {
     pub empty_limit: usize,
     pub result_limit: usize,
     pub recent_limit: usize,
+    /// 검색 패턴 이력 보관 수. 0 이면 이력을 쓰지 않는다.
+    pub history_limit: usize,
     pub record_recent: bool,
     pub hide_on_blur: bool,
     pub theme: String,
@@ -291,6 +296,7 @@ impl Default for Config {
             empty_limit: DEFAULT_EMPTY_LIMIT,
             result_limit: DEFAULT_RESULT_LIMIT,
             recent_limit: DEFAULT_RECENT_LIMIT,
+            history_limit: DEFAULT_HISTORY_LIMIT,
             record_recent: true,
             hide_on_blur: true,
             theme: "system".to_string(),
@@ -376,6 +382,13 @@ impl Config {
                 self.recent_limit
             ));
             self.recent_limit = DEFAULT_RECENT_LIMIT;
+        }
+        if self.history_limit > MAX_HISTORY_LIMIT {
+            w.push(format!(
+                "history_limit {} 은(는) 범위(0~{MAX_HISTORY_LIMIT})를 벗어나 기본값 {DEFAULT_HISTORY_LIMIT} 으로 대체했습니다",
+                self.history_limit
+            ));
+            self.history_limit = DEFAULT_HISTORY_LIMIT;
         }
 
         if self.empty_limit == 0 {
@@ -514,10 +527,11 @@ pub fn default_toml() -> String {
     r#"# fdpick 설정 파일
 # 지운 항목은 기본값이 적용됩니다. 잘못된 값은 경고와 함께 기본값으로 대체됩니다.
 
-# 팝업을 여는 전역 단축키
+# 팝업을 여는 전역 단축키. 검색 모드로 시작합니다.
 hotkey = "Ctrl+Alt+Space"
 
-# 2차 단축키. 1차와 충돌할 때를 위해 함께 등록합니다. 빈 문자열이면 사용하지 않습니다.
+# 2차 단축키. 경로 모드로 시작합니다. 빈 문자열이면 사용하지 않습니다.
+# 팝업이 열려 있을 때 시작 모드가 다른 단축키를 누르면 그 모드로 바뀌고, 같은 모드의 단축키는 팝업을 닫습니다.
 hotkey2 = "Ctrl+Shift+L"
 
 # fd 실행 파일 경로. 비워 두면 PATH 에서 찾습니다.
@@ -557,6 +571,10 @@ result_limit = 200
 # 최근 사용 목록에 보관할 최대 경로 수 (1~5000)
 recent_limit = 200
 
+# 검색 패턴 이력 보관 수 (0~1000). 0 이면 이력을 쓰지 않습니다.
+# 검색 모드에서 결과를 실제로 쓴 입력만 저장되고, Ctrl+↑/↓ 로 불러옵니다. 지우기는 트레이 메뉴의 "검색 이력 지우기".
+history_limit = 50
+
 # 복사/열기한 경로를 최근 사용 목록에 기록한다
 record_recent = true
 
@@ -572,7 +590,7 @@ autostart = false
 # Enter / Shift+Enter 동작: copy(경로 복사) | copy_dir(폴더 경로 복사) | reveal(탐색기에서 열기)
 #   | open(기본 프로그램으로 열기) | to_explorer(직전에 포커스가 있던 탐색기 창을 이동)
 # Ctrl+Enter 는 reveal, Alt+Enter 는 open 으로 고정입니다.
-enter_action = "reveal"
+enter_action = "to_explorer"
 shift_enter_action = "copy"
 
 # 경로 복사 동작
@@ -609,6 +627,35 @@ forward_slash = false
 # mode = "batch"
 # window = true
 # run = ["powershell.exe", "-NoProfile", "-File", "C:\\scripts\\process.ps1", "{paths}"]
+
+# ---- 기본 제공 액션(Ctrl+K 메뉴). 필요 없으면 지우고, 프로그램이 PATH 에 없으면 run 에 전체 경로를 적으세요 ----
+
+# 텍스트·코드 파일을 gvim 으로 열기(여러 개 선택하면 한 창에 탭으로)
+[[action]]
+name = "gvim 으로 열기"
+ext = ["txt", "md", "log", "ini", "cfg", "conf", "toml", "yaml", "yml", "json", "xml", "csv", "tsv", "html", "css", "js", "ts", "tsx", "jsx", "rs", "py", "go", "java", "c", "h", "cpp", "hpp", "sh", "ps1", "bat", "sql"]
+target = "file"
+mode = "batch"
+run = ["gvim", "--remote-tab-silent", "{paths}"]
+
+# 이미지 파일을 IrfanView 로 열기(파일마다 창 하나)
+[[action]]
+name = "IrfanView 로 열기"
+ext = ["jpg", "jpeg", "png", "gif", "bmp", "webp", "tif", "tiff", "ico"]
+target = "file"
+run = ["irfanview", "{path}"]
+
+# 폴더를 Windows Terminal 로 열기
+[[action]]
+name = "터미널로 열기"
+target = "dir"
+run = ["wt", "-d", "{path}"]
+
+# 파일이 들어 있는 폴더를 Windows Terminal 로 열기(확장자 제한 없음)
+[[action]]
+name = "파일 폴더를 터미널로 열기"
+target = "file"
+run = ["wt", "-d", "{dir}"]
 "#
     .to_string()
 }
@@ -662,7 +709,10 @@ pub fn load_from(path: &Path, create_if_missing: bool) -> LoadResult {
                     ));
                 }
             }
-            return LoadResult { config: Config::default(), warnings, created: true };
+            // 기본 제공 액션을 첫 실행부터 쓰도록, 방금 쓴 기본 설정 텍스트를 해석한다
+            let mut config: Config = toml::from_str(&default_toml()).unwrap_or_default();
+            warnings.extend(config.sanitize());
+            return LoadResult { config, warnings, created: true };
         }
         Err(e) => {
             warnings.push(format!(
@@ -769,10 +819,19 @@ mod tests {
         r
     }
 
+    /// default_toml 이 담은 기본 제공 액션까지 포함한 기본 설정
+    fn default_with_actions() -> Config {
+        let shipped: Config = toml::from_str(&default_toml()).unwrap();
+        assert_eq!(shipped.actions.len(), 4);
+        let mut c = Config { actions: shipped.actions, ..Config::default() };
+        c.sanitize();
+        c
+    }
+
     #[test]
     fn default_toml_equals_default() {
         let c: Config = toml::from_str(&default_toml()).expect("default_toml 은 유효한 TOML");
-        assert_eq!(c, Config::default());
+        assert_eq!(c, default_with_actions());
         // sanitize 도 경고 없이 통과
         let mut c2 = c.clone();
         assert!(c2.sanitize().is_empty());
@@ -807,12 +866,12 @@ mod tests {
         let r = load_from(&p, true);
         assert!(r.created);
         assert!(r.warnings.is_empty(), "{:?}", r.warnings);
-        assert_eq!(r.config, Config::default());
+        assert_eq!(r.config, default_with_actions());
         let text = std::fs::read_to_string(&p).unwrap();
         assert_eq!(text, default_toml());
         let r2 = load_from(&p, true);
         assert!(!r2.created);
-        assert_eq!(r2.config, Config::default());
+        assert_eq!(r2.config, default_with_actions());
         assert!(r2.warnings.is_empty());
         let _ = std::fs::remove_dir_all(&d);
     }
@@ -824,7 +883,7 @@ mod tests {
         let r = load_from(&p, false);
         assert!(r.created);
         assert!(!p.exists());
-        assert_eq!(r.config, Config::default());
+        assert_eq!(r.config, default_with_actions());
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -837,7 +896,7 @@ mod tests {
         let r = load_from(&blocker.join("config.toml"), true);
         assert!(r.created);
         assert!(!r.warnings.is_empty());
-        assert_eq!(r.config, Config::default());
+        assert_eq!(r.config, default_with_actions());
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -992,10 +1051,12 @@ mod tests {
     }
 
     #[test]
-    fn default_has_no_actions_and_example_is_commented() {
+    fn default_has_no_actions_and_toml_ships_four() {
         assert!(Config::default().actions.is_empty());
         assert!(default_toml().contains("# [[action]]"));
-        assert!(!default_toml().lines().any(|l| l.trim_start().starts_with("[[action]]")));
+        // 기본 제공 액션은 default_toml 에만 활성 항목으로 있다(Config::default 는 비어 있다)
+        let n = default_toml().lines().filter(|l| l.trim_start().starts_with("[[action]]")).count();
+        assert_eq!(n, 4);
     }
 
     #[test]

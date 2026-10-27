@@ -9,7 +9,6 @@ mod gfx;
 mod hotkey;
 mod input;
 mod paint;
-mod persist;
 mod state;
 mod tray;
 mod util;
@@ -19,7 +18,8 @@ use std::ptr::null;
 use std::sync::Arc;
 
 use fdpick_core::config;
-use fdpick_core::engine::{Engine, Sink};
+use fdpick_core::engine::{Engine, Mode, Sink};
+use fdpick_core::history;
 use fdpick_core::user_actions;
 use fdpick_logic::controller::{Controller, ControllerInit};
 use windows_sys::Win32::Foundation::*;
@@ -121,8 +121,14 @@ fn main() {
 
         // 컨트롤러
         let cfg_for_applicable = config.clone();
+        let history_path = history::default_path();
         let ctl = Controller::new(ControllerInit {
-            saved_mode: persist::load_mode(),
+            start_mode: Some(Mode::Fuzzy),
+            history: history_path
+                .as_deref()
+                .map(|p| history::load(p, config.history_limit))
+                .unwrap_or_default(),
+            history_limit: config.history_limit,
             all_actions: user_actions::all(&config.actions),
             applicable: Arc::new(move |paths: &[String]| user_actions::applicable(&cfg_for_applicable.actions, paths)),
             startup_notes: notes,
@@ -133,7 +139,7 @@ fn main() {
         app::install(config, engine, ctl);
 
         if show_now {
-            app::show_popup();
+            app::show_popup(Mode::Fuzzy);
         }
 
         let mut msg: MSG = zeroed();

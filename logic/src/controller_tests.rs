@@ -15,7 +15,9 @@ fn act(id: usize, name: &str, key: &str, close: bool) -> ActionInfo {
 fn make(saved: Option<Mode>, actions: Vec<ActionInfo>, notes: Vec<&str>) -> Controller {
     let list = actions.clone();
     Controller::new(ControllerInit {
-        saved_mode: saved,
+        start_mode: saved,
+        history: Vec::new(),
+        history_limit: 50,
         all_actions: actions,
         applicable: Arc::new(move |_paths: &[String]| list.clone()),
         startup_notes: notes.into_iter().map(String::from).collect(),
@@ -118,25 +120,24 @@ fn initial_mode_and_labels() {
 #[test]
 fn help_has_actions_suffix() {
     let c = make(None, vec![act(0, "A", "", true)], vec![]);
-    assert!(c.view().help.ends_with("Ctrl+L 모드 · Ctrl+K 액션"));
+    assert!(c.view().help.ends_with("Ctrl+L 모드 · Ctrl+K/→ 액션"));
 }
 
 #[test]
-fn ctrl_l_cycles_and_save_mode_rules() {
+fn ctrl_l_cycles_modes() {
     let mut c = plain(Some(Mode::Fuzzy));
-    // fuzzy -> path : 저장
+    // fuzzy -> path
     let o = c.on_key(&ck("l"), "abc");
     assert!(o.handled);
     assert_eq!(
         o.commands,
         vec![
-            Command::SaveMode(Mode::Path),
             Command::SetInput(String::new()),
             query("", Mode::Path, false)
         ]
     );
     assert_eq!(c.view().mode_label, "경로");
-    // path -> recent : 저장하지 않음
+    // path -> recent
     let o = c.on_key(&ck("L"), "");
     assert_eq!(o.commands, vec![Command::SetInput(String::new()), query("", Mode::Recent, false)]);
     let v = c.view();
@@ -144,21 +145,21 @@ fn ctrl_l_cycles_and_save_mode_rules() {
     assert_eq!(v.mode_label, "최근");
     assert_eq!(v.placeholder, "최근 사용 항목 검색");
     assert!(v.help.starts_with("최근 사용 · 퍼지 검색"));
-    // recent -> fuzzy : 저장
+    // recent -> fuzzy
     let o = c.on_key(&ck("l"), "");
-    assert_eq!(o.commands[0], Command::SaveMode(Mode::Fuzzy));
+    assert_eq!(o.commands[0], Command::SetInput(String::new()));
     assert_eq!(c.view().mode, Mode::Fuzzy);
-    // 팝업 재표시는 마지막으로 저장한 모드(fuzzy)
-    let cmds = c.on_show();
+    // 팝업 재표시는 단축키가 정한 시작 모드(fuzzy)
+    let cmds = c.on_show(Mode::Fuzzy);
     assert_eq!(cmds, vec![Command::SetInput(String::new()), query("", Mode::Fuzzy, false)]);
 }
 
 #[test]
-fn recent_mode_is_not_restored_on_show() {
+fn show_uses_the_hotkey_start_mode() {
     let mut c = plain(Some(Mode::Path));
     c.on_key(&ck("l"), "");
     assert_eq!(c.view().mode, Mode::Recent);
-    c.on_show();
+    c.on_show(Mode::Path);
     assert_eq!(c.view().mode, Mode::Path);
 }
 
@@ -464,7 +465,6 @@ fn tab_fuzzy_to_path_switches_and_saves() {
     assert_eq!(
         o.commands,
         vec![
-            Command::SaveMode(Mode::Path),
             Command::SetInput("D:\\docs\\".into()),
             query("D:\\docs\\", Mode::Path, false)
         ]
@@ -474,12 +474,12 @@ fn tab_fuzzy_to_path_switches_and_saves() {
     let mut c = plain(Some(Mode::Fuzzy));
     c.on_results(res(1, Mode::Fuzzy, vec![item("D:\\x\\sub", true, false)], RunState::Done));
     let o = c.on_key(&k("Tab"), "");
-    assert_eq!(o.commands[1], Command::SetInput("D:\\x\\sub\\".into()));
+    assert_eq!(o.commands[0], Command::SetInput("D:\\x\\sub\\".into()));
     // 파일이 드라이브 루트 바로 아래
     let mut c = plain(Some(Mode::Fuzzy));
     c.on_results(res(1, Mode::Fuzzy, vec![item("D:\\a.txt", false, false)], RunState::Done));
     let o = c.on_key(&k("Tab"), "");
-    assert_eq!(o.commands[1], Command::SetInput("D:\\".into()));
+    assert_eq!(o.commands[0], Command::SetInput("D:\\".into()));
     // 항목이 없으면 모드 전환도 없다
     let mut c = plain(Some(Mode::Fuzzy));
     let o = c.on_key(&k("Tab"), "");
@@ -488,13 +488,12 @@ fn tab_fuzzy_to_path_switches_and_saves() {
 }
 
 #[test]
-fn tab_from_recent_mode_saves_path() {
+fn tab_from_recent_mode_goes_to_path() {
     let mut c = plain(Some(Mode::Path));
     c.on_key(&ck("l"), "");
     c.on_results(res(1, Mode::Recent, vec![item("D:\\r\\f.txt", false, true)], RunState::Done));
     let o = c.on_key(&k("Tab"), "");
-    assert_eq!(o.commands[0], Command::SaveMode(Mode::Path));
-    assert_eq!(o.commands[1], Command::SetInput("D:\\r\\".into()));
+    assert_eq!(o.commands[0], Command::SetInput("D:\\r\\".into()));
     assert_eq!(c.view().mode, Mode::Path);
 }
 
@@ -507,7 +506,7 @@ fn escape_hides_and_menu_escape_only_closes_menu() {
     assert!(o.handled);
     let v = c.view();
     assert!(v.menu_open);
-    assert_eq!(v.help, "액션 메뉴 · 위/아래 선택 · Enter 실행 · Esc 닫기");
+    assert_eq!(v.help, "액션 메뉴 · 위/아래 선택 · Enter 실행 · Esc/← 닫기");
     assert_eq!(v.rows.len(), 1);
     assert_eq!(v.rows[0].path, "열기");
     assert_eq!(v.rows[0].name_start, 0);
@@ -605,7 +604,9 @@ fn menu_restores_user_moved_cursor() {
 #[test]
 fn menu_without_applicable_actions() {
     let mut c = Controller::new(ControllerInit {
-        saved_mode: None,
+        start_mode: None,
+        history: Vec::new(),
+        history_limit: 50,
         all_actions: vec![act(0, "A", "", true)],
         applicable: Arc::new(|_: &[String]| Vec::new()),
         startup_notes: vec![],
@@ -684,7 +685,7 @@ fn multi_select_and_action_targets() {
     ));
     // 커서 항목만
     let o = c.on_key(&k("Enter"), "f");
-    assert_eq!(o.commands, vec![copy_cmd(&["C:\\a.txt"])]);
+    assert_eq!(o.commands[0], copy_cmd(&["C:\\a.txt"]));
     // Ctrl+Space: 선택 후 한 칸 아래
     c.on_key(&ck("Space"), "f");
     assert_eq!(c.view().cursor, Some(1));
@@ -695,13 +696,13 @@ fn multi_select_and_action_targets() {
     assert_eq!(v.status, "2개 선택 · 완료 · 3개 일치 / 3개 스캔 · 5ms");
     // 다중 선택 > 커서 항목
     let o = c.on_key(&k("Enter"), "f");
-    assert_eq!(o.commands, vec![copy_cmd(&["C:\\a.txt", "C:\\b.txt"])]);
+    assert_eq!(o.commands[0], copy_cmd(&["C:\\a.txt", "C:\\b.txt"]));
     // 같은 항목 다시 토글하면 해제
     c.on_key(&k("ArrowUp"), "f");
     c.on_key(&k("ArrowUp"), "f");
     c.on_key(&ck("Space"), "f");
     let o = c.on_key(&k("Enter"), "f");
-    assert_eq!(o.commands, vec![copy_cmd(&["C:\\b.txt"])]);
+    assert_eq!(o.commands[0], copy_cmd(&["C:\\b.txt"]));
     // 모드 전환 시 선택 초기화
     c.on_key(&ck("l"), "f");
     assert!(c.view().rows.iter().all(|r| !r.picked));
@@ -761,7 +762,7 @@ fn mode_mismatch_payload_is_dropped_and_does_not_advance_seq() {
 fn last_seq_survives_show_and_mode_switch() {
     let mut c = plain(None);
     c.on_results(res(10, Mode::Path, vec![dir("C:\\a")], RunState::Done));
-    c.on_show();
+    c.on_show(Mode::Path);
     assert!(c.view().rows.is_empty());
     // TS 와 동일: lastSeq 는 초기화하지 않는다
     c.on_results(res(10, Mode::Path, vec![dir("C:\\a")], RunState::Done));
@@ -933,7 +934,7 @@ fn startup_notes_until_first_input() {
     assert_eq!(v.status, "경고1 · 경고2 · 준비됨");
     assert_eq!(v.status_kind, StatusKind::Error);
     // 팝업 재표시로는 사라지지 않는다
-    c.on_show();
+    c.on_show(Mode::Path);
     assert!(c.view().status.starts_with("경고1 · 경고2"));
     // 첫 입력 후 사라진다
     c.on_input_changed("a", false);
@@ -1003,7 +1004,7 @@ fn on_show_resets_everything() {
     c.on_key(&ck("k"), "C:\\ap");
     assert!(c.view().menu_open);
     c.set_page_size(5);
-    let cmds = c.on_show();
+    let cmds = c.on_show(Mode::Path);
     assert_eq!(cmds, vec![Command::SetInput(String::new()), query("", Mode::Path, false)]);
     let v = c.view();
     assert!(!v.menu_open);
@@ -1045,7 +1046,7 @@ fn echo_of_set_input_is_ignored_once() {
 #[test]
 fn echo_does_not_swallow_later_real_edit() {
     let mut c = plain(None);
-    c.on_show();
+    c.on_show(Mode::Path);
     // 에코가 오지 않은 채로 사용자가 입력
     let o = c.on_key(&k("a"), "");
     assert!(!o.handled);
@@ -1108,7 +1109,9 @@ fn tilde_in_search_mode_expands_only_at_path_token() {
 #[test]
 fn configurable_enter_actions() {
     let mut c = Controller::new(ControllerInit {
-        saved_mode: None,
+        start_mode: None,
+        history: Vec::new(),
+        history_limit: 50,
         all_actions: Vec::new(),
         applicable: Arc::new(|_: &[String]| Vec::new()),
         startup_notes: vec![],
@@ -1130,4 +1133,157 @@ fn configurable_enter_actions() {
         vec![Command::RunAction { kind: "copy".into(), paths: vec!["C:\\apps\\bin".into()] }]
     );
     assert!(c.view().help.contains("Enter 탐색기") && c.view().help.contains("Shift+Enter 복사"));
+}
+
+#[test]
+fn right_arrow_opens_menu_only_at_caret_end_and_left_closes() {
+    let mut c = make(None, vec![act(0, "열기", "", true)], vec![]);
+    typed(&mut c, "C:\\ap", 1, vec![dir("C:\\apps")]);
+    // 캐럿이 끝이 아니면 EDIT 로 넘긴다
+    let mut ev = k("ArrowRight");
+    ev.caret_at_end = false;
+    let o = c.on_key(&ev, "C:\\ap");
+    assert!(!o.handled && !c.view().menu_open);
+    // 조합 중, 수식키 동반도 열지 않는다
+    let mut ev = k("ArrowRight");
+    ev.composing = true;
+    assert!(!c.on_key(&ev, "C:\\ap").handled);
+    assert!(!c.view().menu_open);
+    let mut ev = k("ArrowRight");
+    ev.shift = true;
+    assert!(!c.on_key(&ev, "C:\\ap").handled);
+    assert!(!c.view().menu_open);
+    // 끝에서는 열린다
+    let o = c.on_key(&k("ArrowRight"), "C:\\ap");
+    assert!(o.handled && c.view().menu_open);
+    // ← 는 메뉴만 닫고 이전 목록을 복원한다
+    let o = c.on_key(&k("ArrowLeft"), "C:\\ap");
+    assert!(o.handled && !has_hide(&o));
+    let v = c.view();
+    assert!(!v.menu_open);
+    assert_eq!(v.rows[0].path, "C:\\apps");
+}
+
+#[test]
+fn right_arrow_passes_through_without_actions() {
+    let mut c = plain(None);
+    let o = c.on_key(&k("ArrowRight"), "x");
+    assert!(!o.handled && !c.view().menu_open);
+}
+
+fn with_history(items: &[&str], limit: usize) -> Controller {
+    Controller::new(ControllerInit {
+        start_mode: Some(Mode::Fuzzy),
+        history: items.iter().map(|s| s.to_string()).collect(),
+        history_limit: limit,
+        all_actions: Vec::new(),
+        applicable: Arc::new(|_: &[String]| Vec::new()),
+        startup_notes: vec![],
+        enter_action: "copy".into(),
+        shift_enter_action: "copy".into(),
+        home_dir: None,
+    })
+}
+
+fn saved_history(o: &KeyOutcome) -> Option<Vec<String>> {
+    o.commands.iter().find_map(|c| match c {
+        Command::SaveHistory(h) => Some(h.clone()),
+        _ => None,
+    })
+}
+
+#[test]
+fn history_recorded_only_when_result_is_used_in_search_mode() {
+    let mut c = with_history(&["old"], 50);
+    c.on_input_changed("rep", false);
+    c.on_results(res(1, Mode::Fuzzy, vec![item("C:\\a.txt", false, false)], RunState::Done));
+    // 타이핑만으로는 저장하지 않는다
+    assert!(c.on_key(&k("ArrowDown"), "rep").commands.is_empty());
+    // Enter(결과 사용): 맨 앞에 추가
+    let o = c.on_key(&k("Enter"), "rep");
+    assert_eq!(saved_history(&o), Some(vec!["rep".to_string(), "old".to_string()]));
+    // 같은 패턴은 중복 없이 맨 앞으로(다른 패턴이 사이에 있어도)
+    let o = c.on_key(&k("Enter"), "old");
+    assert_eq!(saved_history(&o), Some(vec!["old".to_string(), "rep".to_string()]));
+    // 빈 입력은 저장하지 않는다
+    let o = c.on_key(&k("Enter"), "  ");
+    assert_eq!(saved_history(&o), None);
+}
+
+#[test]
+fn history_not_recorded_in_path_mode_or_when_disabled() {
+    let mut c = with_history(&[], 50);
+    c.on_key(&ck("l"), "");
+    c.on_input_changed("C:\\a", false);
+    c.on_results(res(1, Mode::Path, vec![dir("C:\\apps")], RunState::Done));
+    assert_eq!(saved_history(&c.on_key(&k("Enter"), "C:\\a")), None);
+    let mut c = with_history(&["x"], 0);
+    c.on_input_changed("rep", false);
+    c.on_results(res(1, Mode::Fuzzy, vec![item("C:\\a.txt", false, false)], RunState::Done));
+    assert_eq!(saved_history(&c.on_key(&k("Enter"), "rep")), None);
+    // 꺼져 있으면 Ctrl+↑ 도 이력을 채우지 않는다(목록 이동으로 처리)
+    let o = c.on_key(&ck("ArrowUp"), "rep");
+    assert!(!o.commands.iter().any(|x| matches!(x, Command::SetInput(_))));
+}
+
+#[test]
+fn history_limit_trims_oldest() {
+    let mut c = with_history(&["b", "a"], 2);
+    c.on_input_changed("c", false);
+    c.on_results(res(1, Mode::Fuzzy, vec![item("C:\\a.txt", false, false)], RunState::Done));
+    let o = c.on_key(&k("Enter"), "c");
+    assert_eq!(saved_history(&o), Some(vec!["c".to_string(), "b".to_string()]));
+}
+
+#[test]
+fn ctrl_up_down_walks_history_with_prefix_filter() {
+    let mut c = with_history(&["foo bar", "baz", "foo", "Fox"], 50);
+    let set = |o: &KeyOutcome| -> Option<String> {
+        o.commands.iter().find_map(|x| match x {
+            Command::SetInput(t) => Some(t.clone()),
+            _ => None,
+        })
+    };
+    // 빈 입력: 최근부터
+    assert_eq!(set(&c.on_key(&ck("ArrowUp"), "")).as_deref(), Some("foo bar"));
+    assert_eq!(set(&c.on_key(&ck("ArrowUp"), "foo bar")).as_deref(), Some("baz"));
+    assert_eq!(set(&c.on_key(&ck("ArrowUp"), "baz")).as_deref(), Some("foo"));
+    assert_eq!(set(&c.on_key(&ck("ArrowUp"), "foo")).as_deref(), Some("Fox"));
+    // 끝에서는 그대로
+    assert!(c.on_key(&ck("ArrowUp"), "Fox").commands.is_empty());
+    // 내려오다 처음 입력(빈 문자열)으로 복귀
+    c.on_key(&ck("ArrowDown"), "Fox");
+    c.on_key(&ck("ArrowDown"), "foo");
+    c.on_key(&ck("ArrowDown"), "baz");
+    assert_eq!(set(&c.on_key(&ck("ArrowDown"), "foo bar")).as_deref(), Some(""));
+    assert!(c.on_key(&ck("ArrowDown"), "").commands.is_empty());
+    // 입력 중이면 접두어(대소문자 무시) 일치만. 입력과 똑같은 항목은 건너뛴다
+    c.on_input_changed("fo", false);
+    assert_eq!(set(&c.on_key(&ck("ArrowUp"), "fo")).as_deref(), Some("foo bar"));
+    assert_eq!(set(&c.on_key(&ck("ArrowUp"), "foo bar")).as_deref(), Some("foo"));
+    assert_eq!(set(&c.on_key(&ck("ArrowUp"), "foo")).as_deref(), Some("Fox"));
+    assert_eq!(set(&c.on_key(&ck("ArrowDown"), "Fox")).as_deref(), Some("foo"));
+    // 직접 타이핑하면 순회 상태가 끝난다(새 입력이 접두어)
+    c.on_input_changed("ba", false);
+    assert_eq!(set(&c.on_key(&ck("ArrowUp"), "ba")).as_deref(), Some("baz"));
+}
+
+#[test]
+fn ctrl_up_in_path_mode_still_moves_cursor_and_history_is_search_only() {
+    let mut c = with_history(&["foo"], 50);
+    c.on_key(&ck("l"), "");
+    let o = c.on_key(&ck("ArrowUp"), "");
+    assert!(!o.commands.iter().any(|x| matches!(x, Command::SetInput(_))));
+}
+
+#[test]
+fn clear_history_and_switch_to() {
+    let mut c = with_history(&["a"], 50);
+    assert_eq!(c.clear_history(), vec![Command::SaveHistory(Vec::new())]);
+    assert!(c.on_key(&ck("ArrowUp"), "").commands.is_empty());
+    // 같은 모드로 전환 요청은 무시, 다른 모드는 입력을 비우고 질의
+    assert!(c.switch_to(Mode::Fuzzy).is_empty());
+    let cmds = c.switch_to(Mode::Path);
+    assert_eq!(cmds, vec![Command::SetInput(String::new()), query("", Mode::Path, false)]);
+    assert_eq!(c.view().mode, Mode::Path);
 }
