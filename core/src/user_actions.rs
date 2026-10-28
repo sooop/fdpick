@@ -213,6 +213,28 @@ fn expand(tpl: &str, v: &Vars) -> String {
     out
 }
 
+/// `%NAME%` 을 환경 변수 값으로 바꾼다. 정의되지 않았거나 짝이 없는 `%` 는 그대로 둔다.
+fn expand_env(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find('%') {
+        out.push_str(&rest[..i]);
+        let after = &rest[i + 1..];
+        match after.find('%').and_then(|j| std::env::var(&after[..j]).ok().map(|val| (val, j))) {
+            Some((val, j)) if j > 0 => {
+                out.push_str(&val);
+                rest = &after[j + 1..];
+            }
+            _ => {
+                out.push('%');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// 인자 목록을 전개한다. 정확히 `{paths}` 인 인자는 `group` 의 모든 경로로 확장되고,
 /// 나머지는 `group[0]` 기준으로 치환한다. `group` 은 비어 있으면 안 된다.
 fn expand_args(args: &[String], group: &[String]) -> Vec<String> {
@@ -240,7 +262,7 @@ fn groups(a: &ActionConfig, paths: &[String]) -> Vec<Vec<String>> {
 }
 
 /// 실행할 명령 전체(`[실행파일, 인자...]`)를 만든다. `paths` 는 정규화된 경로여야 한다.
-/// 실행 파일(`run[0]`)은 고정 문자열이라 치환하지 않는다.
+/// 실행 파일(`run[0]`)은 `{path}` 류는 치환하지 않고 `%LOCALAPPDATA%` 같은 환경 변수만 풀어 준다.
 fn build_commands(a: &ActionConfig, paths: &[String]) -> Vec<Vec<String>> {
     if a.run.is_empty() {
         return Vec::new();
@@ -248,7 +270,7 @@ fn build_commands(a: &ActionConfig, paths: &[String]) -> Vec<Vec<String>> {
     groups(a, paths)
         .iter()
         .map(|g| {
-            let mut argv = vec![a.run[0].clone()];
+            let mut argv = vec![expand_env(&a.run[0])];
             argv.extend(expand_args(&a.run[1..], g));
             argv
         })
@@ -402,6 +424,15 @@ mod tests {
         // 디렉터리 대상이면 그 디렉터리의 부모
         let v = vars_for("D:\\data");
         assert_eq!(expand("{dir}|{name}|{stem}|{ext}", &v), "D:\\|data|data|");
+    }
+
+    #[test]
+    fn expand_env_vars() {
+        std::env::set_var("FDPICK_T_VAR", "C:\\Users\\x");
+        assert_eq!(expand_env("%FDPICK_T_VAR%\\wt.exe"), "C:\\Users\\x\\wt.exe");
+        assert_eq!(expand_env("%FDPICK_T_NONE%\\a"), "%FDPICK_T_NONE%\\a");
+        assert_eq!(expand_env("100%"), "100%");
+        assert_eq!(expand_env("a%%b"), "a%%b");
     }
 
     #[test]

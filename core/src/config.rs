@@ -628,7 +628,7 @@ forward_slash = false
 # window = true
 # run = ["powershell.exe", "-NoProfile", "-File", "C:\\scripts\\process.ps1", "{paths}"]
 
-# ---- 기본 제공 액션(Ctrl+K 메뉴). 필요 없으면 지우고, 프로그램이 PATH 에 없으면 run 에 전체 경로를 적으세요 ----
+# ---- 기본 제공 액션(Ctrl+K 메뉴). 필요 없으면 지우고, 프로그램이 PATH 에 없으면 run 에 전체 경로를 적으세요(첫 항목의 %LOCALAPPDATA% 같은 환경 변수는 풀립니다) ----
 
 # 텍스트·코드 파일을 gvim 으로 열기(여러 개 선택하면 한 창에 탭으로)
 [[action]]
@@ -649,13 +649,13 @@ run = ["irfanview", "{path}"]
 [[action]]
 name = "터미널로 열기"
 target = "dir"
-run = ["wt", "-d", "{path}"]
+run = ['%LOCALAPPDATA%\Microsoft\WindowsApps\wt.exe', "-d", "{path}"]
 
 # 파일이 들어 있는 폴더를 Windows Terminal 로 열기(확장자 제한 없음)
 [[action]]
 name = "파일 폴더를 터미널로 열기"
 target = "file"
-run = ["wt", "-d", "{dir}"]
+run = ['%LOCALAPPDATA%\Microsoft\WindowsApps\wt.exe', "-d", "{dir}"]
 "#
     .to_string()
 }
