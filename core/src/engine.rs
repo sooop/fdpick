@@ -305,6 +305,11 @@ impl Engine {
         self.recents.lock().unwrap().record(paths);
     }
 
+    /// 최근 사용 목록(사용 이력)을 모두 지운다.
+    pub fn clear_recents(&self) {
+        self.recents.lock().unwrap().clear();
+    }
+
     /// 최근 모드: 입력이 비면 최신순 전체, 있으면 퍼지 검색.
     fn recent_query(&self, text: &str) {
         let limit = self.state.lock().unwrap().result_limit;

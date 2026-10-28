@@ -242,15 +242,24 @@ unsafe fn on_hotkey(mode: Mode) {
     SetFocus(a.edit);
 }
 
-/// 검색 이력을 모두 지운다(확인 후). 저장 파일도 비운다.
+/// 검색 이력을 모두 지운다(확인 후). 저장 파일도 비운다. 예 = 사용 이력(최근 목록)도 함께, 아니요 = 검색 이력만.
 unsafe fn clear_search_history() {
     let a = st();
-    let msg = w("검색 이력을 모두 지울까요?");
-    if MessageBoxW(a.hwnd, msg.as_ptr(), w("fdpick").as_ptr(), MB_YESNO | MB_ICONQUESTION) != IDYES {
+    let msg = w("검색 이력을 모두 지울까요?
+
+[예] 사용 이력(최근 목록)도 함께 지움
+[아니요] 검색 이력만 지움");
+    let r = MessageBoxW(a.hwnd, msg.as_ptr(), w("fdpick").as_ptr(), MB_YESNOCANCEL | MB_ICONQUESTION);
+    if r != IDYES && r != IDNO {
         return;
     }
     let cmds = a.ctl.as_mut().map(|c| c.clear_history()).unwrap_or_default();
     exec(cmds);
+    if r == IDYES {
+        if let Some(engine) = a.engine.as_ref() {
+            engine.clear_recents();
+        }
+    }
 }
 
 // ---------------------------------------------------------------- 뷰 갱신

@@ -335,6 +335,15 @@ impl Recents {
         }
     }
 
+    /// 목록을 모두 비우고 저장한다.
+    pub fn clear(&mut self) {
+        if self.items.is_empty() {
+            return;
+        }
+        self.items.clear();
+        self.save();
+    }
+
     pub fn len(&self) -> usize {
         self.items.len()
     }
