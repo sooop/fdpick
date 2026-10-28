@@ -413,7 +413,7 @@ unsafe fn run_action(kind: String, paths: Vec<String>) {
     let prev_fg = a.prev_fg;
     let spawned = std::thread::Builder::new().name("fdpick-action".into()).spawn(move || {
         let opts = actions::CopyOptions { quote: cfg.copy.quote, forward_slash: cfg.copy.forward_slash };
-        // to_explorer 는 직전 포커스가 탐색기가 아니면 조용히 무시한다(acted=false). 최근 목록에도 올리지 않는다.
+        // to_explorer 는 직전 포커스가 탐색기이면 그 창을 이동하고, 아니면 reveal 처럼 새 창을 연다.
         let result = if kind == "to_explorer" {
             paths.first().map(|p| explorer::goto(prev_fg, p)).unwrap_or(Ok(false))
         } else {

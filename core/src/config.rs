@@ -588,7 +588,8 @@ theme = "system"
 autostart = false
 
 # Enter / Shift+Enter 동작: copy(경로 복사) | copy_dir(폴더 경로 복사) | reveal(탐색기에서 열기)
-#   | open(기본 프로그램으로 열기) | to_explorer(직전에 포커스가 있던 탐색기 창을 이동)
+#   | open(기본 프로그램으로 열기) | to_explorer(직전에 포커스가 있던 탐색기 창을 이동.
+#   직전 창이 탐색기가 아니면 reveal 과 같이 탐색기를 새로 실행)
 # Ctrl+Enter 는 reveal, Alt+Enter 는 open 으로 고정입니다.
 enter_action = "to_explorer"
 shift_enter_action = "copy"

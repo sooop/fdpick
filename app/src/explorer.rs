@@ -1,8 +1,9 @@
 //! 열려 있는 탐색기 창으로 경로를 보낸다(Shift+Enter).
 //!
 //! 팝업을 띄우기 직전에 포커스가 있던 창이 탐색기이면 그 창(탭이면 활성 탭)을 `Navigate2` 로 이동한다.
-//! 파일이면 부모 폴더로 이동한 뒤 그 파일을 선택한다. 탐색기 창이 하나도 없으면 새 창을 연다.
-//! 다른 앱에 포커스가 있었고 탐색기 창이 따로 열려 있으면 아무 일도 하지 않는다.
+//! 파일이면 부모 폴더로 이동한 뒤 그 파일을 선택한다.
+//! 직전 창이 탐색기가 아니면(다른 탐색기 창이 열려 있어도), 또는 창 목록 조회·이동이 실패하면
+//! reveal 과 같이 탐색기를 새로 실행한다.
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -139,7 +140,7 @@ unsafe fn select_file(wb: &IWebBrowser2, dir: &str, file: &str) {
 }
 
 /// `prev_fg`(팝업 직전 포커스 창)가 탐색기이면 그 창을 `path` 로 이동한다.
-/// 동작했으면 true, 조용히 무시했으면 false.
+/// 이동하거나 reveal 로 대신했으면 true.
 pub fn goto(prev_fg: usize, path: &str) -> Result<bool, String> {
     let norm = actions::normalize_path(path);
     let p = Path::new(&norm);
@@ -148,22 +149,26 @@ pub fn goto(prev_fg: usize, path: &str) -> Result<bool, String> {
     }
     unsafe {
         let _com = ComGuard::init();
-        let sw: IShellWindows =
-            CoCreateInstance(&ShellWindows, None, CLSCTX_ALL).map_err(|e| format!("탐색기 창 목록을 읽지 못했습니다: {e}"))?;
+        // 창 목록을 읽지 못하는 경우(셸 재시작, 권한 차이 등)도 reveal 로 대신한다
+        let Ok(sw) = CoCreateInstance::<_, IShellWindows>(&ShellWindows, None, CLSCTX_ALL) else {
+            actions::run("reveal", &[norm])?;
+            return Ok(true);
+        };
         let wins = explorer_windows(&sw);
-        if wins.is_empty() {
+        let fg = HWND(prev_fg as *mut _);
+        let cands: Vec<&Win> = wins.iter().filter(|w| w.top == fg).collect();
+        let Some(win) = active_tab(&cands) else {
+            // 직전 창이 탐색기가 아니면(다른 탐색기 창이 떠 있어도) reveal 과 같이 탐색기를 새로 실행한다
+            actions::run("reveal", &[norm])?;
+            return Ok(true);
+        };
+
+        let dir = if p.is_dir() { norm.clone() } else { actions::to_dir_path(&norm) };
+        if navigate(&win.browser, &dir).is_err() {
             actions::run("reveal", &[norm])?;
             return Ok(true);
         }
-        let fg = HWND(prev_fg as *mut _);
-        let cands: Vec<&Win> = wins.iter().filter(|w| w.top == fg).collect();
-        let Some(win) = active_tab(&cands) else { return Ok(false) };
-
-        if p.is_dir() {
-            navigate(&win.browser, &norm)?;
-        } else {
-            let dir = actions::to_dir_path(&norm);
-            navigate(&win.browser, &dir)?;
+        if !p.is_dir() {
             select_file(&win.browser, &dir, &norm);
         }
         let _ = SetForegroundWindow(win.top);
