@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
+use crate::apps::{self, AppEntry, AppIndex};
 use crate::config::Config;
 use crate::fd::{self, DriveTypes, FdConfig, FdEvent};
 use crate::matcher::{Injector, Matcher};
@@ -30,6 +31,7 @@ pub enum Mode {
     Fuzzy,
     Path,
     Recent,
+    Apps,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -120,6 +122,9 @@ pub struct Engine {
     deny_top: Vec<String>,
     record_recent: bool,
     recents: Arc<Mutex<Recents>>,
+    apps: Arc<Mutex<AppIndex>>,
+    /// 마지막 앱 모드 입력(목록을 다시 채웠을 때 화면을 갱신하는 데 쓴다)
+    apps_text: Arc<Mutex<String>>,
     state: Arc<Mutex<State>>,
     wake: Arc<Wake>,
 }
@@ -154,9 +159,16 @@ impl Engine {
             deny_top: config.deny_top.clone(),
             record_recent: config.record_recent,
             recents: Arc::new(Mutex::new(Recents::load(Recents::default_path(), config.recent_limit))),
+            apps: Arc::new(Mutex::new(AppIndex::new(AppIndex::default_usage_path()))),
+            apps_text: Arc::new(Mutex::new(String::new())),
             state,
             wake,
         };
+        {
+            let mut idx = engine.apps.lock().unwrap();
+            idx.set_entries(apps::builtin_entries());
+            idx.invalidate();
+        }
         engine.spawn_emitter();
         engine
     }
@@ -167,6 +179,8 @@ impl Engine {
             self.path_query(text);
         } else if mode == "recent" {
             self.recent_query(text);
+        } else if mode == "apps" {
+            self.apps_query(text);
         } else {
             self.fuzzy_query(text, force);
         }
@@ -308,6 +322,69 @@ impl Engine {
     /// 최근 사용 목록(사용 이력)을 모두 지운다.
     pub fn clear_recents(&self) {
         self.recents.lock().unwrap().clear();
+    }
+
+    /// 앱 목록을 새로 채운다(내장 도구가 앞, 같은 이름의 열거 항목은 뒤에서 버려진다).
+    pub fn set_apps(&self, enumerated: Vec<AppEntry>) {
+        let mut all = apps::builtin_entries();
+        all.extend(enumerated);
+        self.apps.lock().unwrap().set_entries(all);
+        if self.state.lock().unwrap().mode == Mode::Apps {
+            let text = self.apps_text.lock().unwrap().clone();
+            self.apps_query(&text);
+        }
+    }
+
+    /// 앱 목록이 비었거나 `max_age` 보다 오래됐으면 true(수집을 다시 해야 한다).
+    pub fn apps_stale(&self, max_age: Duration) -> bool {
+        self.apps.lock().unwrap().age().map_or(true, |a| a > max_age)
+    }
+
+    /// 앱을 실행하고 실행 시각을 기록한다. `admin` 이면 관리자 권한으로 실행한다.
+    pub fn launch_app(&self, name: &str, admin: bool) -> Result<(), String> {
+        let entry = self.apps.lock().unwrap().find(name).cloned().ok_or_else(|| format!("{name} 을(를) 찾을 수 없습니다"))?;
+        apps::launch(&entry, admin)?;
+        self.apps.lock().unwrap().record_use(name);
+        Ok(())
+    }
+
+    /// 앱 모드: 위에 최근 실행한 앱, 아래에 전체(공백 무시·초성 지원 퍼지 검색).
+    fn apps_query(&self, text: &str) {
+        *self.apps_text.lock().unwrap() = text.to_string();
+        let limit = self.state.lock().unwrap().result_limit;
+        let (hits, total) = {
+            let idx = self.apps.lock().unwrap();
+            (idx.search(text, limit), idx.len() as u32)
+        };
+        let matched = hits.iter().filter(|h| !h.recent).count() as u32;
+        let items: Vec<ResultItem> = hits
+            .into_iter()
+            .map(|h| ResultItem {
+                path: h.name,
+                name_start: 0,
+                indices: h.indices,
+                is_dir: false,
+                recent: h.recent,
+                missing: false,
+            })
+            .collect();
+        let payload = {
+            let mut st = self.state.lock().unwrap();
+            st.mode = Mode::Apps;
+            st.seq += 1;
+            ResultsUpdated {
+                seq: st.seq,
+                mode: Mode::Apps,
+                items,
+                matched,
+                scanned: total,
+                state: RunState::Done,
+                elapsed_ms: 0,
+                message: None,
+                cache_note: None,
+            }
+        };
+        (self.sink)(payload);
     }
 
     /// 최근 모드: 입력이 비면 최신순 전체, 있으면 퍼지 검색.

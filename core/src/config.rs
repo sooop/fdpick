@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 const KNOWN_KEYS: &[&str] = &[
     "hotkey",
     "hotkey2",
+    "hotkey3",
     "fd_path",
     "default_fd_args",
     "deny_top",
@@ -67,6 +68,7 @@ const KNOWN_COPY_KEYS: &[&str] = &["quote", "forward_slash"];
 
 const DEFAULT_HOTKEY: &str = "Ctrl+Alt+Space";
 const DEFAULT_HOTKEY2: &str = "Ctrl+Shift+L";
+const DEFAULT_HOTKEY3: &str = "Ctrl+Alt+\\";
 const DEFAULT_TTL: u64 = 15;
 const DEFAULT_EMPTY_LIMIT: usize = 200;
 const DEFAULT_RECENT_LIMIT: usize = 200;
@@ -101,6 +103,8 @@ pub struct Config {
     pub hotkey: String,
     /// 2차 단축키. 1차와 함께 등록되며, 빈 문자열이면 사용하지 않는다.
     pub hotkey2: String,
+    /// 3차 단축키. 앱 런처 모드로 시작한다. 빈 문자열이면 사용하지 않는다.
+    pub hotkey3: String,
     pub fd_path: String,
     pub default_fd_args: Vec<String>,
     pub deny_top: Vec<String>,
@@ -263,6 +267,7 @@ impl Default for Config {
         Self {
             hotkey: DEFAULT_HOTKEY.to_string(),
             hotkey2: DEFAULT_HOTKEY2.to_string(),
+            hotkey3: DEFAULT_HOTKEY3.to_string(),
             fd_path: String::new(),
             default_fd_args: strs(&[
                 "-t",
@@ -533,6 +538,10 @@ hotkey = "Ctrl+Alt+Space"
 # 2차 단축키. 경로 모드로 시작합니다. 빈 문자열이면 사용하지 않습니다.
 # 팝업이 열려 있을 때 시작 모드가 다른 단축키를 누르면 그 모드로 바뀌고, 같은 모드의 단축키는 팝업을 닫습니다.
 hotkey2 = "Ctrl+Shift+L"
+
+# 3차 단축키. 앱 런처 모드로 시작합니다(시작 메뉴 앱, 윈도 내장 도구, 설정 페이지 실행). 빈 문자열이면 사용하지 않습니다.
+# 이름은 공백을 무시하고 한글 초성(ㅈㅊㄱㄹㅈ)으로도 찾습니다.
+hotkey3 = "Ctrl+Alt+\\"
 
 # fd 실행 파일 경로. 비워 두면 PATH 에서 찾습니다.
 fd_path = ""

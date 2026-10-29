@@ -37,31 +37,15 @@ pub struct ControllerInit {
 
 const MENU_HELP: &str = "액션 메뉴 · 위/아래 선택 · Enter 실행 · Esc/← 닫기";
 
-/// `{E}` = Enter 동작, `{S}` = Shift+Enter 동작
-fn help_of(mode: Mode) -> &'static str {
-    match mode {
-        Mode::Fuzzy => "[fd옵션] -- 검색어 \u{00a0} 예) @D:\\work -e pdf -- 보고서 · Tab @경로 완성/폴더 · Enter {E} · Ctrl+Enter 탐색기 · Shift+Enter {S} · Ctrl+L 모드",
-        Mode::Path => "폴더 탐색 · Tab 또는 / 진입 · Shift+Tab 상위 · Enter {E} · Ctrl+Enter 탐색기 · Shift+Enter {S} · Ctrl+L 모드",
-        Mode::Recent => "최근 사용 · 퍼지 검색 · Enter {E} · Tab 폴더 · Ctrl+Enter 탐색기 · Shift+Enter {S} · Ctrl+L 모드",
-    }
-}
-
-/// 도움말에 쓰는 동작 이름
-fn action_label(kind: &str) -> &'static str {
-    match kind {
-        "copy_dir" => "폴더 복사",
-        "reveal" => "탐색기",
-        "open" => "열기",
-        "to_explorer" => "열린 탐색기로",
-        _ => "복사",
-    }
-}
+/// 하단 도움말: 모드 전환 키만 알린다.
+const HELP: &str = "Ctrl+L 모드 전환";
 
 fn placeholder_of(mode: Mode) -> &'static str {
     match mode {
         Mode::Fuzzy => "[fd옵션] -- 검색어",
-        Mode::Path => "경로 입력 (예: d:\\work)",
+        Mode::Path => "경로 입력",
         Mode::Recent => "최근 사용 항목 검색",
+        Mode::Apps => "앱 이름으로 검색...",
     }
 }
 
@@ -70,15 +54,17 @@ fn label_of(mode: Mode) -> &'static str {
         Mode::Fuzzy => "검색",
         Mode::Path => "경로",
         Mode::Recent => "최근",
+        Mode::Apps => "앱",
     }
 }
 
-/// Ctrl+L 순환: fuzzy -> path -> recent -> fuzzy
+/// Ctrl+L 순환: fuzzy -> path -> recent -> apps -> fuzzy
 fn next_mode(mode: Mode) -> Mode {
     match mode {
         Mode::Fuzzy => Mode::Path,
         Mode::Path => Mode::Recent,
-        Mode::Recent => Mode::Fuzzy,
+        Mode::Recent => Mode::Apps,
+        Mode::Apps => Mode::Fuzzy,
     }
 }
 
@@ -403,7 +389,7 @@ impl Controller {
                 let path = if path.chars().any(char::is_whitespace) { format!("\"{path}\"") } else { path };
                 Some(format!("{}@{}", &text[..tok.start], path))
             }
-            Mode::Recent => None,
+            Mode::Recent | Mode::Apps => None,
         }
     }
 
@@ -718,6 +704,9 @@ impl Controller {
         if self.menu_open {
             return self.on_menu_key(ev);
         }
+        if self.mode == Mode::Apps {
+            return self.on_apps_key(ev);
+        }
 
         let key = ev.key.as_str();
         let ctrl = ev.ctrl && !ev.alt;
@@ -861,6 +850,41 @@ impl Controller {
         out(false, Vec::new())
     }
 
+    /// 앱 모드의 키 처리. 목록 항목은 경로가 아니라 앱 이름이라 복사·탐색기·사용자 액션·메뉴는 막는다.
+    fn on_apps_key(&mut self, ev: &KeyEvent) -> KeyOutcome {
+        let key = ev.key.as_str();
+        let ctrl = ev.ctrl && !ev.alt;
+        let lower = if key.chars().count() == 1 { key.to_lowercase() } else { key.to_string() };
+        let lower = lower.as_str();
+        match key {
+            "Escape" => return out(true, vec![Command::Hide]),
+            "Enter" => {
+                // Enter 는 실행, Shift+Enter 는 관리자 권한으로 실행
+                let launch = !ev.ctrl && !ev.alt;
+                let cmds = match self.current() {
+                    Some(it) if launch => vec![Command::LaunchApp { name: it.path.clone(), admin: ev.shift }],
+                    _ => Vec::new(),
+                };
+                return out(true, cmds);
+            }
+            "ArrowUp" => self.move_cursor(-1),
+            "ArrowDown" => self.move_cursor(1),
+            "PageUp" => self.move_cursor(-(self.page_size as isize)),
+            "PageDown" => self.move_cursor(self.page_size as isize),
+            "Tab" => {}
+            _ if ctrl && lower == "p" => self.move_cursor(-1),
+            _ if ctrl && lower == "n" => self.move_cursor(1),
+            _ if ctrl && lower == "l" => {
+                let next = next_mode(self.mode);
+                return out(true, self.switch_mode(next));
+            }
+            _ if ctrl && lower == "r" => return out(true, vec![self.query(true)]),
+            _ if ctrl && (["d", "o", "k"].contains(&lower) || key == "Space" || key == " ") => {}
+            _ => return out(false, Vec::new()),
+        }
+        out(true, Vec::new())
+    }
+
     fn insert_sep(&mut self) -> Vec<Command> {
         if !ends_with_sep(&self.input) {
             let t = format!("{}\\", self.input);
@@ -937,6 +961,8 @@ impl Controller {
                 parts.push(p.message.clone().unwrap_or_else(|| "오류".into()));
             } else if self.mode == Mode::Recent {
                 parts.push(format!("{}개 일치", fmt_num(p.matched as u64)));
+            } else if self.mode == Mode::Apps {
+                parts.push(format!("{}개 일치 / 전체 {}개", fmt_num(p.matched as u64), fmt_num(p.scanned as u64)));
             } else if p.state == RunState::Running {
                 if kind == StatusKind::Normal {
                     kind = StatusKind::Running;
@@ -972,7 +998,7 @@ impl Controller {
     }
 
     fn rows(&self) -> Vec<Row> {
-        let badge_mode = self.mode == Mode::Path && !self.menu_open;
+        let badge_mode = matches!(self.mode, Mode::Path | Mode::Apps) && !self.menu_open;
         self.items
             .iter()
             .enumerate()
@@ -992,6 +1018,7 @@ impl Controller {
                     recent_badge,
                     missing: it.missing,
                     recent_last: recent_badge && !next_recent,
+                    tint_name: recent_badge && self.mode == Mode::Apps,
                     picked: !self.menu_open && self.picked.contains(&it.path),
                     hint,
                 }
@@ -1004,13 +1031,7 @@ impl Controller {
         let help = if self.menu_open {
             MENU_HELP.to_string()
         } else {
-            format!(
-                "{}{}",
-                help_of(self.mode)
-                    .replace("{E}", action_label(&self.enter_action))
-                    .replace("{S}", action_label(&self.shift_enter_action)),
-                if self.has_actions { " · Ctrl+K/→ 액션" } else { "" }
-            )
+            HELP.to_string()
         };
         ViewState {
             mode: self.mode,

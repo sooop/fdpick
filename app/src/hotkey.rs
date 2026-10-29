@@ -5,6 +5,7 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
 
 pub const ID_HOTKEY: i32 = 1;
 pub const ID_HOTKEY2: i32 = 2;
+pub const ID_HOTKEY3: i32 = 3;
 
 /// 파싱 결과: (HOT_KEY_MODIFIERS 비트, 가상 키 코드)
 pub fn parse(spec: &str) -> Result<(u32, u32), String> {
@@ -95,6 +96,7 @@ pub fn unregister(hwnd: HWND) {
     unsafe {
         UnregisterHotKey(hwnd, ID_HOTKEY);
         UnregisterHotKey(hwnd, ID_HOTKEY2);
+        UnregisterHotKey(hwnd, ID_HOTKEY3);
     }
 }
 
@@ -107,6 +109,7 @@ mod tests {
         assert_eq!(parse("Ctrl+Alt+Space"), Ok((MOD_CONTROL | MOD_ALT, VK_SPACE as u32)));
         assert_eq!(parse("ctrl + alt + f"), Ok((MOD_CONTROL | MOD_ALT, 'F' as u32)));
         assert_eq!(parse("Win+Shift+F12"), Ok((MOD_WIN | MOD_SHIFT, VK_F12 as u32)));
+        assert!(parse("Ctrl+Alt+\\").is_ok());
         assert!(parse("Ctrl+Alt").is_err());
         assert!(parse("Ctrl+A+B").is_err());
         assert!(parse("").is_err());

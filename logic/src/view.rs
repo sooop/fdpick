@@ -20,6 +20,8 @@ pub struct Row {
     pub recent_badge: bool,
     /// 존재하지 않는 경로(흐리게)
     pub missing: bool,
+    /// 이름을 강조색으로 그린다(앱 모드의 최근 구역)
+    pub tint_name: bool,
     /// 최근 구역의 마지막 행(아래에 구분선)
     pub recent_last: bool,
     /// Ctrl+Space 로 다중 선택됨
@@ -39,7 +41,7 @@ pub enum StatusKind {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ViewState {
     pub mode: Mode,
-    /// 모드 칩 문구: "검색" / "경로" / "최근"
+    /// 모드 칩 문구: "검색" / "경로" / "최근" / "앱"
     pub mode_label: String,
     /// 하단 도움말(왼쪽)
     pub help: String,
@@ -98,4 +100,6 @@ pub enum Command {
     RunUserAction { id: usize, paths: Vec<String>, close_popup: bool },
     /// 검색 패턴 이력 전체(최신이 앞)를 저장한다. 빈 목록이면 이력을 지운 것.
     SaveHistory(Vec<String>),
+    /// 앱 모드: 이름이 `name` 인 앱을 실행한다(`admin` 이면 관리자 권한). 완료되면 셸이 `Controller::on_action_result` 를 호출한다.
+    LaunchApp { name: String, admin: bool },
 }

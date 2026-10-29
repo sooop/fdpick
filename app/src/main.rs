@@ -3,6 +3,7 @@
 #![windows_subsystem = "windows"]
 
 mod app;
+mod applist;
 mod autostart;
 mod explorer;
 mod gfx;
@@ -99,6 +100,12 @@ fn main() {
         if !config.hotkey2.trim().is_empty() && !config.hotkey2.trim().eq_ignore_ascii_case(specs[0].1.trim()) {
             specs.push((hotkey::ID_HOTKEY2, config.hotkey2.clone()));
         }
+        for (id, s) in [(hotkey::ID_HOTKEY3, &config.hotkey3)] {
+            let dup = specs.iter().any(|(_, o)| o.trim().eq_ignore_ascii_case(s.trim()));
+            if !s.trim().is_empty() && !dup {
+                specs.push((id, s.clone()));
+            }
+        }
         let mut active = Vec::new();
         let mut failed = Vec::new();
         for (id, spec) in &specs {
@@ -137,6 +144,7 @@ fn main() {
             home_dir: std::env::var("USERPROFILE").ok().filter(|h| !h.is_empty()),
         });
         app::install(config, engine, ctl);
+        app::refresh_apps(false);
 
         if show_now {
             app::show_popup(Mode::Fuzzy);

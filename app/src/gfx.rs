@@ -27,6 +27,8 @@ pub struct Palette {
     pub err: COLORREF,
     /// 최근 모드 칩 (배경, 글자)
     pub recent_chip: (COLORREF, COLORREF),
+    /// 앱 모드 칩 (배경, 글자)
+    pub apps_chip: (COLORREF, COLORREF),
 }
 
 const LIGHT: Palette = Palette {
@@ -43,6 +45,7 @@ const LIGHT: Palette = Palette {
     invalid: hex(0xd92d20),
     err: hex(0xd93025),
     recent_chip: (hex(0xb45309), hex(0xffffff)),
+    apps_chip: (hex(0x2f855a), hex(0xffffff)),
 };
 
 const DARK: Palette = Palette {
@@ -59,6 +62,7 @@ const DARK: Palette = Palette {
     invalid: hex(0xff6b5e),
     err: hex(0xff7b72),
     recent_chip: (hex(0xf0b35a), hex(0x1c1c1e)),
+    apps_chip: (hex(0x6fcf97), hex(0x1c1c1e)),
 };
 
 pub fn palette() -> &'static Palette {

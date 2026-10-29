@@ -173,6 +173,9 @@ unsafe fn place_window() {
     }
 }
 
+/// 앱 목록을 이 시간보다 오래 쓰지 않는다(앱 모드를 열 때 다시 수집)
+const APPS_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
 // ---------------------------------------------------------------- 표시/숨김
 
 /// 팝업을 연다. `mode` 는 단축키가 정한 시작 모드. 이미 떠 있으면 상태를 유지하고 앞으로 가져온다.
@@ -335,6 +338,7 @@ fn mode_str(m: Mode) -> &'static str {
         Mode::Fuzzy => "fuzzy",
         Mode::Path => "path",
         Mode::Recent => "recent",
+        Mode::Apps => "apps",
     }
 }
 
@@ -373,7 +377,13 @@ pub unsafe fn exec(cmds: Vec<Command>) {
     for c in cmds {
         match c {
             Command::SetInput(t) => set_input(&t),
-            Command::Query { text, mode, force } => queue_query(text, mode, force),
+            Command::Query { text, mode, force } => {
+                if mode == Mode::Apps {
+                    refresh_apps(force);
+                }
+                queue_query(text, mode, force)
+            }
+            Command::LaunchApp { name, admin } => launch_app(name, admin),
             Command::Hide => hide_popup(false),
             Command::RunAction { kind, paths } => run_action(kind, paths),
             Command::RunUserAction { id, paths, close_popup } => run_user_action(id, paths, close_popup),
@@ -425,6 +435,40 @@ unsafe fn run_action(kind: String, paths: Vec<String>) {
             }
         });
         // 내장 동작은 성공하면 팝업을 닫는 것이 기본 흐름
+        post_done(hwnd, ActionDone { result, close_popup: true });
+    });
+    if spawned.is_err() {
+        post_done(hwnd, ActionDone { result: Err("작업 스레드를 만들 수 없습니다".into()), close_popup: false });
+    }
+}
+
+/// 앱 목록을 백그라운드에서 다시 수집한다. `force` 가 아니면 목록이 비었거나 오래됐을 때만 한다.
+/// 수집이 끝나면 엔진이 앱 모드 화면을 갱신한다.
+pub unsafe fn refresh_apps(force: bool) {
+    static RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let Some(engine) = st().engine.clone() else { return };
+    if !force && !engine.apps_stale(APPS_MAX_AGE) {
+        return;
+    }
+    if RUNNING.swap(true, std::sync::atomic::Ordering::AcqRel) {
+        return;
+    }
+    let spawned = std::thread::Builder::new().name("fdpick-apps".into()).spawn(move || {
+        let entries = crate::applist::enumerate();
+        engine.set_apps(entries);
+        RUNNING.store(false, std::sync::atomic::Ordering::Release);
+    });
+    if spawned.is_err() {
+        RUNNING.store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
+unsafe fn launch_app(name: String, admin: bool) {
+    let a = st();
+    let Some(engine) = a.engine.clone() else { return };
+    let hwnd = a.hwnd as usize;
+    let spawned = std::thread::Builder::new().name("fdpick-action".into()).spawn(move || {
+        let result = engine.launch_app(&name, admin);
         post_done(hwnd, ActionDone { result, close_popup: true });
     });
     if spawned.is_err() {
@@ -593,6 +637,7 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
             match wp as i32 {
                 hotkey::ID_HOTKEY => on_hotkey(Mode::Fuzzy),
                 hotkey::ID_HOTKEY2 => on_hotkey(Mode::Path),
+                hotkey::ID_HOTKEY3 => on_hotkey(Mode::Apps),
                 _ => {}
             }
             0

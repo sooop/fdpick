@@ -289,7 +289,7 @@ unsafe fn paint_row(hdc: HDC, row: &Row, selected: bool, y: i32) {
 
     // 파일명(굵게): 넘치면 끝을 "…" 로 줄인다
     SelectObject(hdc, a.f_name);
-    let name_col = fade(p.text);
+    let name_col = fade(if row.tint_name { p.accent } else { p.text });
     let nhit = &hit[ns..];
     if name_w <= name_draw {
         marked(hdc, cx, yb, name_u, nhit, &name_pre, 0, name_u.len(), name_col, mark_col);
@@ -321,6 +321,7 @@ unsafe fn paint(hdc: HDC, v: &ViewState) {
             Mode::Fuzzy => (p.chip_bg, p.chip_text),
             Mode::Path => (p.accent, 0x00ff_ffff),
             Mode::Recent => p.recent_chip,
+            Mode::Apps => p.apps_chip,
         };
         round_fill(hdc, &r, bg, sc(5.0));
         let tm = metrics_of(hdc, a.f_chip);

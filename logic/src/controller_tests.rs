@@ -102,25 +102,16 @@ fn initial_mode_and_labels() {
     let v = c.view();
     assert_eq!(v.mode, Mode::Path);
     assert_eq!(v.mode_label, "경로");
-    assert_eq!(v.placeholder, "경로 입력 (예: d:\\work)");
-    assert_eq!(
-        v.help,
-        "폴더 탐색 · Tab 또는 / 진입 · Shift+Tab 상위 · Enter 복사 · Ctrl+Enter 탐색기 · Shift+Enter 열린 탐색기로 · Ctrl+L 모드"
-    );
+    assert_eq!(v.placeholder, "경로 입력");
+    assert_eq!(v.help, "Ctrl+L 모드 전환");
     let v = plain(Some(Mode::Fuzzy)).view();
     assert_eq!(v.mode, Mode::Fuzzy);
     assert_eq!(v.mode_label, "검색");
     assert_eq!(v.placeholder, "[fd옵션] -- 검색어");
-    assert!(v.help.starts_with("[fd옵션] -- 검색어 \u{00a0} 예) @D:\\work -e pdf"));
+    assert_eq!(v.help, "Ctrl+L 모드 전환");
     // 저장값이 recent 로 들어와도 경로 모드
     assert_eq!(plain(Some(Mode::Recent)).view().mode, Mode::Path);
     assert_eq!(plain(None).view().status, "준비됨");
-}
-
-#[test]
-fn help_has_actions_suffix() {
-    let c = make(None, vec![act(0, "A", "", true)], vec![]);
-    assert!(c.view().help.ends_with("Ctrl+L 모드 · Ctrl+K/→ 액션"));
 }
 
 #[test]
@@ -144,10 +135,11 @@ fn ctrl_l_cycles_modes() {
     assert_eq!(v.mode, Mode::Recent);
     assert_eq!(v.mode_label, "최근");
     assert_eq!(v.placeholder, "최근 사용 항목 검색");
-    assert!(v.help.starts_with("최근 사용 · 퍼지 검색"));
-    // recent -> fuzzy
+    // recent -> apps -> fuzzy
     let o = c.on_key(&ck("l"), "");
     assert_eq!(o.commands[0], Command::SetInput(String::new()));
+    assert_eq!(c.view().mode, Mode::Apps);
+    c.on_key(&ck("l"), "");
     assert_eq!(c.view().mode, Mode::Fuzzy);
     // 팝업 재표시는 단축키가 정한 시작 모드(fuzzy)
     let cmds = c.on_show(Mode::Fuzzy);
@@ -1132,7 +1124,6 @@ fn configurable_enter_actions() {
         o.commands,
         vec![Command::RunAction { kind: "copy".into(), paths: vec!["C:\\apps\\bin".into()] }]
     );
-    assert!(c.view().help.contains("Enter 탐색기") && c.view().help.contains("Shift+Enter 복사"));
 }
 
 #[test]
@@ -1286,4 +1277,60 @@ fn clear_history_and_switch_to() {
     let cmds = c.switch_to(Mode::Path);
     assert_eq!(cmds, vec![Command::SetInput(String::new()), query("", Mode::Path, false)]);
     assert_eq!(c.view().mode, Mode::Path);
+}
+
+fn app_item(name: &str) -> ResultItem {
+    ResultItem { path: name.into(), name_start: 0, indices: Vec::new(), is_dir: false, recent: false, missing: false }
+}
+
+#[test]
+fn apps_mode_enter_launches_the_current_app_by_name() {
+    let mut c = plain(Some(Mode::Fuzzy));
+    c.on_show(Mode::Apps);
+    assert_eq!(c.view().mode, Mode::Apps);
+    assert_eq!(c.view().mode_label, "앱");
+    typed(&mut c, "장치", 1, vec![app_item("장치 관리자"), app_item("장치 설정")]);
+    c.on_key(&k("ArrowDown"), "장치");
+    let o = c.on_key(&k("Enter"), "장치");
+    assert!(o.handled);
+    assert_eq!(o.commands, vec![Command::LaunchApp { name: "장치 설정".into(), admin: false }]);
+    let o = c.on_key(&KeyEvent { shift: true, ..k("Enter") }, "장치");
+    assert_eq!(o.commands, vec![Command::LaunchApp { name: "장치 설정".into(), admin: true }]);
+}
+
+#[test]
+fn apps_mode_blocks_path_oriented_keys() {
+    let mut c = make(Some(Mode::Fuzzy), vec![act(0, "x", "", true)], Vec::new());
+    c.on_show(Mode::Apps);
+    typed(&mut c, "a", 1, vec![app_item("A")]);
+    for ev in [ck("d"), ck("o"), ck("k"), k("Tab"), KeyEvent { alt: true, ..k("Enter") }, KeyEvent { ctrl: true, ..k("Enter") }] {
+        let o = c.on_key(&ev, "a");
+        assert!(o.handled, "{ev:?}");
+        assert!(o.commands.is_empty(), "{ev:?}");
+    }
+    assert!(!c.view().menu_open);
+    // 일반 글자는 입력창으로 넘긴다
+    assert!(!c.on_key(&k("x"), "a").handled);
+}
+
+#[test]
+fn apps_mode_ctrl_l_leaves_to_search_and_ctrl_r_forces_query() {
+    let mut c = plain(None);
+    c.on_show(Mode::Apps);
+    assert_eq!(c.on_key(&ck("r"), "").commands, vec![query("", Mode::Apps, true)]);
+    c.on_key(&ck("l"), "");
+    assert_eq!(c.view().mode, Mode::Fuzzy);
+}
+
+#[test]
+fn apps_mode_marks_the_recent_section() {
+    let mut c = plain(None);
+    c.on_show(Mode::Apps);
+    let recent = ResultItem { recent: true, ..app_item("계산기") };
+    typed(&mut c, "", 1, vec![recent, app_item("계산기"), app_item("메모장")]);
+    let rows = c.view().rows;
+    assert!(rows[0].recent_badge && rows[0].recent_last && rows[0].tint_name);
+    assert!(!rows[1].recent_badge && !rows[1].tint_name);
+    // 최근 구역이 있어도 첫 행(가장 최근에 쓴 앱)이 선택된다
+    assert_eq!(c.view().cursor, Some(0));
 }
